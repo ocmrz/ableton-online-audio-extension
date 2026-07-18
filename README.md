@@ -6,8 +6,6 @@ Online Audio searches YouTube, YouTube Music, and SoundCloud inside Ableton Live
 
 <p align="center">
   <a href="../../releases/latest/download/Online-Audio.ablx"><strong>Download Online Audio (.ablx)</strong></a>
-  ·
-  <a href="../../releases/latest">Release notes</a>
 </p>
 
 > Requires **Ableton Live 12.4.5 public beta** with Extensions.
