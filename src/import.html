@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Import Online Audio</title>
+    <script>
+      document.title = "Import Online Audio";
+
+      function sendMessage(message) {
+        if (
+          window.webkit &&
+          window.webkit.messageHandlers &&
+          window.webkit.messageHandlers.live
+        ) {
+          window.webkit.messageHandlers.live.postMessage(message);
+        } else if (window.chrome && window.chrome.webview) {
+          window.chrome.webview.postMessage(message);
+        }
+      }
+      function closeWithResult(result) {
+        sendMessage({
+          method: "close_and_send",
+          params: [JSON.stringify(result)],
+        });
+      }
+
+      var DEBOUNCE_MS = 320;
+      var filters = {
+        youtube: false,
+        "youtube-music": false,
+        soundcloud: false,
+      };
+      var selected = 0;
+      var visible = [];
+      var ranked = [];
+      var debounceTimer = null;
+      var searchGen = 0;
+      var searching = false;
+      var searchError = "";
+
+      var LOGOS = {
+        youtube: "__LOGO_YOUTUBE__",
+        "youtube-music": "__LOGO_YOUTUBE_MUSIC__",
+        soundcloud: "__LOGO_SOUNDCLOUD__",
+      };
+
+      function brandIcon(brand) {
+        var src = LOGOS[brand] || LOGOS.youtube;
+        return (
+          '<img class="brand-icon" src="' +
+          src +
+          '" alt="" width="16" height="16" />'
+        );
+      }
+
+      function fmtDuration(s) {
+        if (s == null) return "?:??";
+        var m = Math.floor(s / 60);
+        var r = s % 60;
+        return m + ":" + String(r).padStart(2, "0");
+      }
+
+      function anyFilterOn() {
+        return (
+          filters.youtube || filters["youtube-music"] || filters.soundcloud
+        );
+      }
+
+      function filtered() {
+        if (!anyFilterOn()) return ranked;
+        return ranked.filter(function (s) {
+          return filters[s.brand || s.candidate.source];
+        });
+      }
+
+      function render() {
+        visible = filtered();
+        if (selected >= visible.length)
+          selected = Math.max(0, visible.length - 1);
+        var list = document.getElementById("list");
+        var resultsBar = document.getElementById("resultsBar");
+        var hasResults = visible.length > 0;
+        resultsBar.hidden = !hasResults;
+        list.innerHTML = "";
+        if (!visible.length) {
+          var emptyMsg = "Type to search";
+          if (searching) emptyMsg = "Searching...";
+          else if (searchError) emptyMsg = searchError;
+          else if (document.getElementById("q").value.trim())
+            emptyMsg = "No results";
+          list.innerHTML = '<div class="empty">' + emptyMsg + "</div>";
+          return;
+        }
+        visible.forEach(function (s, i) {
+          var it = s.candidate;
+          var brand = s.brand || it.source;
+          var row = document.createElement("button");
+          row.type = "button";
+          row.className = "row" + (i === selected ? " selected" : "");
+          row.innerHTML =
+            '<span class="badge">' +
+            brandIcon(brand) +
+            "</span>" +
+            '<span class="meta"><span class="title"></span><span class="sub"></span></span>' +
+            '<span class="dur"></span>';
+          row.querySelector(".title").textContent = it.title;
+          row.querySelector(".sub").textContent =
+            s.subtitle || it.channel || it.source;
+          row.querySelector(".dur").textContent = fmtDuration(it.durationS);
+          row.addEventListener("click", function () {
+            selected = i;
+            render();
+          });
+          row.addEventListener("dblclick", function () {
+            confirmPick();
+          });
+          list.appendChild(row);
+        });
+        var sel = list.querySelector(".row.selected");
+        if (sel) sel.scrollIntoView({ block: "nearest" });
+      }
+
+      function clearResults() {
+        if (window.__searchAbort) window.__searchAbort.abort();
+        clearTimeout(debounceTimer);
+        searchGen += 1;
+        searching = false;
+        var q = document.getElementById("q");
+        q.value = "";
+        ranked = [];
+        searchError = "";
+        selected = 0;
+        render();
+        q.focus();
+      }
+
+      function confirmPick() {
+        var item = visible[selected];
+        if (!item) return;
+        closeWithResult({ candidate: item.candidate });
+      }
+
+      function syncFilterButtons() {
+        document.querySelectorAll(".chip").forEach(function (el) {
+          var key = el.getAttribute("data-filter");
+          el.classList.toggle("active", !!filters[key]);
+        });
+      }
+
+      function toggleFilter(key) {
+        filters[key] = !filters[key];
+        syncFilterButtons();
+        selected = 0;
+        render();
+      }
+
+      async function runSearch(raw, gen) {
+        if (!raw.trim()) {
+          searching = false;
+          ranked = [];
+          searchError = "";
+          selected = 0;
+          render();
+          return;
+        }
+
+        var ctrl = new AbortController();
+        window.__searchAbort = ctrl;
+        // Keep current results visible; only show "Searching..." when empty.
+        searching = ranked.length === 0;
+        searchError = "";
+        if (searching) render();
+
+        var timedOut = false;
+        var timeoutId = setTimeout(function () {
+          timedOut = true;
+          ctrl.abort();
+        }, 25_000);
+
+        try {
+          var res = await fetch(
+            "/search?q=" + encodeURIComponent(raw.trim()),
+            { signal: ctrl.signal },
+          );
+          if (gen !== searchGen) return;
+          if (!res.ok) {
+            var errBody = "";
+            try {
+              var errJson = await res.json();
+              errBody = errJson && errJson.error ? String(errJson.error) : "";
+            } catch (_) {}
+            throw new Error(errBody || "Search HTTP " + res.status);
+          }
+          var data = await res.json();
+          if (gen !== searchGen) return;
+          ranked = (data.items || []).map(function (it) {
+            return {
+              candidate: it.candidate,
+              subtitle: it.subtitle,
+              brand: it.brand || it.source,
+              score: it.score,
+              notes: it.notes,
+            };
+          });
+          selected = 0;
+          searching = false;
+          searchError = "";
+          render();
+        } catch (err) {
+          // Only ignore if a newer search superseded this one.
+          if (gen !== searchGen) return;
+          ranked = [];
+          searching = false;
+          searchError = timedOut
+            ? "Search timed out. Try again."
+            : String(err && err.message ? err.message : err)
+                .split("\n")[0]
+                .slice(0, 140);
+          render();
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      }
+
+      function scheduleSearch() {
+        var raw = document.getElementById("q").value;
+        if (window.__searchAbort) window.__searchAbort.abort();
+        clearTimeout(debounceTimer);
+        searchGen += 1;
+        var gen = searchGen;
+        if (!raw.trim()) {
+          searching = false;
+          ranked = [];
+          render();
+          return;
+        }
+        debounceTimer = setTimeout(function () {
+          runSearch(raw, gen);
+        }, DEBOUNCE_MS);
+      }
+
+      document.addEventListener("DOMContentLoaded", function () {
+        var q = document.getElementById("q");
+        q.focus();
+        q.addEventListener("input", scheduleSearch);
+        document.querySelectorAll(".chip").forEach(function (el) {
+          el.addEventListener("click", function () {
+            toggleFilter(el.getAttribute("data-filter"));
+          });
+        });
+        var sources = document.getElementById("sources");
+        var sourcesToggle = document.getElementById("sourcesToggle");
+        document
+          .getElementById("resultsClear")
+          .addEventListener("click", clearResults);
+        sourcesToggle.addEventListener("click", function () {
+          var collapsed = sources.classList.toggle("collapsed");
+          sourcesToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        });
+        syncFilterButtons();
+        render();
+        document.addEventListener("keydown", function (e) {
+          if (e.key === "Escape") {
+            closeWithResult({ candidate: null });
+            return;
+          }
+          if (e.key === "Enter") {
+            e.preventDefault();
+            confirmPick();
+            return;
+          }
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            if (!visible.length) return;
+            if (selected >= visible.length - 1) return;
+            selected += 1;
+            render();
+          }
+          if (e.key === "ArrowUp") {
+            e.preventDefault();
+            if (!visible.length) return;
+            if (selected <= 0) return;
+            selected -= 1;
+            render();
+          }
+        });
+      });
+    </script>
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+      *:not(dialog) {
+        margin: 0;
+      }
+      input,
+      button {
+        font: inherit;
+      }
+      /*__LIVE_THEME__*/
+      html {
+        background-color: var(--p-live-chrome-bg);
+        color: var(--p-live-text-primary);
+        font-family: "AbletonSansSmall", sans-serif;
+        /* Live browser lists use Regular (400); 500 synthesizes and looks wrong. */
+        font-size: 11px;
+        font-weight: 400;
+        -webkit-font-smoothing: antialiased;
+        height: 100%;
+        overscroll-behavior: none;
+      }
+      body {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        padding: 0;
+        background: var(--p-live-chrome-bg);
+        overscroll-behavior: none;
+        overflow: hidden;
+      }
+      .chrome {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        padding: 0 6px;
+        background: var(--p-live-chrome-bg);
+      }
+      .panel {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        border: 0;
+        border-radius: 4px;
+        overflow: hidden;
+        background: var(--p-live-panel-bg);
+      }
+      .search-row {
+        display: flex;
+        align-items: stretch;
+        border: 0;
+        min-height: 21px;
+        flex: 0 0 auto;
+      }
+      .search {
+        flex: 1;
+        min-width: 0;
+        height: 21px;
+        padding: 0 6px;
+        border: 0;
+        border-radius: 0;
+        background: var(--p-live-surface-bg);
+        color: var(--p-live-surface-text);
+        font-size: 10px;
+        line-height: 21px;
+        outline: none;
+        box-shadow: none;
+      }
+      .search::placeholder {
+        color: var(--p-live-surface-muted);
+      }
+      @media (prefers-color-scheme: dark) {
+        .search {
+          color: #b3b3b3;
+        }
+        .search::placeholder {
+          color: #b3b3b3;
+        }
+      }
+      .search::-webkit-search-cancel-button {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 13px;
+        height: 13px;
+        margin-right: 1px;
+        cursor: default;
+        background: center / 13px 13px no-repeat
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7.25' fill='%232F2F2F'/%3E%3Cpath stroke='%23A5A5A5' stroke-width='1.15' stroke-linecap='round' d='M5.2 5.2l5.6 5.6M10.8 5.2l-5.6 5.6'/%3E%3C/svg%3E");
+      }
+      @media (prefers-color-scheme: dark) {
+        .search::-webkit-search-cancel-button {
+          background: center / 13px 13px no-repeat
+            url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7.25' fill='%239C9C9C'/%3E%3Cpath stroke='%23363636' stroke-width='1.15' stroke-linecap='round' d='M5.2 5.2l5.6 5.6M10.8 5.2l-5.6 5.6'/%3E%3C/svg%3E");
+        }
+      }
+      .sources {
+        flex: 0 0 auto;
+        display: flex;
+        flex-direction: column;
+        background: var(--p-live-surface-bg);
+      }
+      .sources-header {
+        -webkit-appearance: none;
+        appearance: none;
+        display: flex;
+        align-items: center;
+        gap: 0;
+        width: 100%;
+        margin: 0;
+        padding: 3px 6px;
+        border: 0;
+        background: var(--p-live-surface-bg);
+        color: var(--p-live-surface-text);
+        font: inherit;
+        font-size: 10px;
+        font-weight: 400;
+        text-align: left;
+        cursor: default;
+      }
+      .sources-arrow {
+        width: 10px;
+        height: 10px;
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border-radius: 0;
+        margin-left: 3px;
+      }
+      .sources-arrow::after {
+        content: "";
+        width: 0;
+        height: 0;
+        border-style: solid;
+        /* Mid size, still narrow (not equilateral) */
+        border-width: 5px 2.5px 0 2.5px;
+        border-color: var(--p-live-surface-text) transparent transparent transparent;
+      }
+      .sources.collapsed .sources-arrow {
+        border-radius: 1px;
+        background: var(--p-live-disclosure-bg);
+        margin-left: 3px;
+      }
+      .sources.collapsed .sources-arrow::after {
+        border-width: 2.5px 0 2.5px 5px;
+        border-color: transparent transparent transparent var(--p-live-disclosure-fg);
+        margin-left: 0;
+      }
+      @media (prefers-color-scheme: dark) {
+        .sources-header {
+          color: #b5b5b5;
+        }
+        .sources-arrow::after {
+          border-color: #b5b5b5 transparent transparent transparent;
+        }
+        .sources.collapsed .sources-arrow::after {
+          border-color: transparent transparent transparent #b5b5b5;
+        }
+      }
+      .sources.collapsed .toolbar {
+        display: none;
+      }
+      .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 6px 4px;
+        border: 0;
+        flex: 0 0 auto;
+        background: var(--p-live-surface-bg);
+      }
+      .chips {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+      }
+      .chip {
+        -webkit-appearance: none;
+        appearance: none;
+        margin: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        background: var(--p-live-chip-bg);
+        color: var(--p-live-surface-text);
+        border: 1px solid transparent;
+        height: 14px;
+        padding: 0 6px 0 4px;
+        border-radius: 0;
+        font-size: 10px;
+        line-height: 12px;
+        cursor: default;
+        box-sizing: border-box;
+        outline: none;
+      }
+      .chip .brand-icon {
+        width: 10px;
+        height: 10px;
+        object-fit: contain;
+        display: block;
+        flex: 0 0 auto;
+      }
+      @media (prefers-color-scheme: dark) {
+        .chip .brand-icon,
+        .badge .brand-icon {
+          /* Dark assets → ~#B5B5B5 (not pure white) */
+          filter: invert(1) brightness(0.71);
+        }
+      }
+      .chip:hover {
+        background: var(--p-live-chip-bg);
+        color: var(--p-live-surface-text);
+      }
+      .chip:focus,
+      .chip:focus-visible {
+        border-color: var(--p-live-surface-text);
+      }
+      .chip.active {
+        background: var(--p-live-chip-active-bg);
+        color: #121212;
+      }
+      .chip.active:hover {
+        background: var(--p-live-chip-active-bg);
+      }
+      .chip.active .brand-icon {
+        filter: none;
+      }
+      .results {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+      }
+      .results-bar {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        height: 19px;
+        padding: 0 6px;
+        background: var(--p-live-results-bar-bg);
+        color: var(--p-live-results-bar-fg);
+        font-weight: 400;
+      }
+      .results-bar-label {
+        font-size: 10px;
+        line-height: 1;
+        display: flex;
+        align-items: center;
+      }
+      .results-bar[hidden] {
+        display: none;
+      }
+      .results-clear {
+        -webkit-appearance: none;
+        appearance: none;
+        margin: 0;
+        height: 14px;
+        padding: 0 6px;
+        border: 1px solid #4f4f4f;
+        border-radius: 7px;
+        background: #cfcfcf;
+        color: #121212;
+        font: inherit;
+        font-size: 10px;
+        line-height: 12px;
+        cursor: default;
+      }
+      .results-clear:active {
+        background: var(--p-live-accent-primary);
+      }
+      @media (prefers-color-scheme: dark) {
+        .results-clear {
+          background: var(--p-live-control-bg);
+          color: var(--p-live-control-text--enabled);
+          border-color: var(--p-live-control-border);
+        }
+        .results-clear:active {
+          background: var(--p-live-accent-primary);
+          color: #121212;
+        }
+      }
+      .list {
+        flex: 1;
+        overflow: auto;
+        min-height: 0;
+        background: var(--p-live-surface-bg);
+        color: var(--p-live-surface-text);
+        overscroll-behavior: none;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 22px 1fr auto;
+        gap: 0.25em;
+        align-items: center;
+        width: 100%;
+        text-align: left;
+        padding: 5px 8px 5px 5px;
+        border: 0;
+        border-bottom: 0;
+        background: transparent;
+        color: var(--p-live-surface-text);
+        cursor: default;
+      }
+      .row:hover:not(.selected) {
+        background: transparent;
+      }
+      .row.selected {
+        background: var(--p-live-selection-bg);
+        outline: none;
+      }
+      .row.selected .title,
+      .row.selected .sub,
+      .row.selected .dur,
+      .row .title,
+      .row .sub,
+      .row .dur {
+        color: var(--p-live-surface-text);
+      }
+      .badge {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .badge .brand-icon {
+        width: 16px;
+        height: 16px;
+        object-fit: contain;
+        display: block;
+      }
+      .meta {
+        display: flex;
+        flex-direction: column;
+        gap: 0.1em;
+        min-width: 0;
+      }
+      .title {
+        color: var(--p-live-surface-text);
+        font-size: 10px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .sub,
+      .dur {
+        color: var(--p-live-surface-text);
+        font-size: 9px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .dur {
+        font-variant-numeric: tabular-nums;
+      }
+      @media (prefers-color-scheme: dark) {
+        .list,
+        .row,
+        .row .title,
+        .row .sub,
+        .row .dur {
+          color: #b5b5b5;
+        }
+        .row.selected,
+        .row.selected .title,
+        .row.selected .sub,
+        .row.selected .dur {
+          color: #121212;
+        }
+        .row.selected .badge .brand-icon {
+          /* Source icons are dark; undo dark-mode invert → ~#070707 */
+          filter: none;
+        }
+      }
+      .empty {
+        padding: 2em 1.4em 1.4em;
+        color: var(--p-live-empty-text);
+        text-align: center;
+        font-size: 10px;
+      }
+      .footer {
+        display: flex;
+        gap: 4px;
+        justify-content: flex-end;
+        align-items: center;
+        padding: 4px 6px;
+        background: var(--p-live-chrome-bg);
+        border-top: 0;
+      }
+      .button {
+        -webkit-appearance: none;
+        appearance: none;
+        margin: 0;
+        background: var(--p-live-control-bg);
+        color: var(--p-live-control-text--enabled);
+        border: 1px solid var(--p-live-control-border);
+        height: 14px;
+        padding: 0 20px;
+        border-radius: 7px;
+        font-size: 9px;
+        line-height: 12px;
+        cursor: default;
+        box-sizing: border-box;
+      }
+      .button:hover {
+        background: var(--p-live-control-bg);
+        color: var(--p-live-control-text--enabled);
+      }
+      .button:active {
+        background: var(--p-live-accent-primary);
+        color: #121212;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="chrome">
+      <div class="panel">
+        <div class="search-row">
+          <input
+            class="search"
+            id="q"
+            type="search"
+            spellcheck="false"
+            autocomplete="off"
+            placeholder="Search or paste a URL"
+            aria-label="Search"
+          />
+        </div>
+        <div class="sources" id="sources">
+          <button
+            class="sources-header"
+            type="button"
+            id="sourcesToggle"
+            aria-expanded="true"
+            aria-controls="sourcesBody"
+          >
+            <span>Sources</span>
+            <span class="sources-arrow" aria-hidden="true"></span>
+          </button>
+          <div class="toolbar" id="sourcesBody">
+            <div class="chips">
+              <button
+                class="chip"
+                type="button"
+                data-filter="youtube"
+                title="YouTube"
+              >
+                <img
+                  class="brand-icon"
+                  src="__LOGO_YOUTUBE__"
+                  alt=""
+                  width="10"
+                  height="10"
+                />
+                YouTube
+              </button>
+              <button
+                class="chip"
+                type="button"
+                data-filter="youtube-music"
+                title="YouTube Music"
+              >
+                <img
+                  class="brand-icon"
+                  src="__LOGO_YOUTUBE_MUSIC__"
+                  alt=""
+                  width="10"
+                  height="10"
+                />
+                YouTube Music
+              </button>
+              <button
+                class="chip"
+                type="button"
+                data-filter="soundcloud"
+                title="SoundCloud"
+              >
+                <img
+                  class="brand-icon"
+                  src="__LOGO_SOUNDCLOUD__"
+                  alt=""
+                  width="10"
+                  height="10"
+                />
+                SoundCloud
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="results">
+          <div class="results-bar" id="resultsBar" hidden>
+            <span class="results-bar-label">Results</span>
+            <button class="results-clear" type="button" id="resultsClear">
+              Clear
+            </button>
+          </div>
+          <div class="list" id="list" role="listbox"></div>
+        </div>
+      </div>
+    </div>
+    <div class="footer">
+      <button
+        class="button"
+        type="button"
+        onclick="closeWithResult({ candidate: null })"
+      >
+        Cancel
+      </button>
+      <button class="button" type="button" onclick="confirmPick()">Import</button>
+    </div>
+  </body>
+</html>
