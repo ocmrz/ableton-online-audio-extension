@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[oc]
+
+# Node
+node_modules/
+dist/
+.tmp/
+*.ablx
+
+# Ableton Extensions SDK (obtain from Ableton Centercode; do not redistribute)
+vendor/*.tgz
+!vendor/README.md
+
+# Env / local
+.env
+.DS_Store
+*.log
