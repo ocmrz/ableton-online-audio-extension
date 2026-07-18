@@ -1,6 +1,6 @@
 # Online Audio for Ableton Live
 
-**Bring a reference, vocal, texture, or sample into your set without leaving Live.**
+**Find and import online audio without leaving Ableton Live.**
 
 Online Audio searches YouTube, YouTube Music, and SoundCloud inside Ableton Live. Review the title, artist, source, and duration, then import your pick directly into a clip slot or Arrangement track.
 
@@ -10,38 +10,37 @@ Online Audio searches YouTube, YouTube Music, and SoundCloud inside Ableton Live
   <a href="../../releases/latest">Release notes</a>
 </p>
 
-> Requires the **[Ableton Live 12.4.5 public beta](https://ableton.github.io/extensions-sdk/)** with Extensions. The Extensions SDK is beta-only for now.
+> Requires **Ableton Live 12.4.5 public beta** with Extensions.
 
 <p align="center">
   <img src="docs/images/online-audio-light.png" alt="Online Audio search results in Ableton Live's light theme" width="49%">
   <img src="docs/images/online-audio-dark.png" alt="Online Audio search results in Ableton Live's dark theme" width="49%">
 </p>
 
-## Get started
+## Install
 
 1. [Download the latest `.ablx`](../../releases/latest/download/Online-Audio.ablx).
-2. Open the downloaded file and let Live install the extension.
-3. Right-click a clip slot, an Arrangement selection, or an audio track.
-4. Choose **Extensions → Online Audio: Import…**
-5. Search for a song or paste a YouTube, YouTube Music, or SoundCloud URL.
-6. Pick a result and select **Import**. Online Audio places it in your set.
+2. Open Live's **Settings**.
+3. Select the **Extensions** tab.
+4. Drag `Online-Audio.ablx` into the **Drag and drop to install** area.
+5. Turn off **Developer Mode** if it is enabled.
+6. Quit and reopen Live.
 
-## Stay in the flow
+Packaged extensions do not appear while Developer Mode is active.
 
-- **Search three sources at once.** Compare YouTube, YouTube Music, and SoundCloud results in one list.
-- **Find the right version.** Results favor studio releases unless you ask for a live take, cover, remix, or another variation.
-- **Bring your own link.** Paste a URL when you already know the exact audio you need.
-- **Work from the keyboard.** Use <kbd>↑</kbd>/<kbd>↓</kbd> to move, <kbd>Enter</kbd> to import, and <kbd>Esc</kbd> to cancel. You can also double-click a result.
-- **Skip system setup.** Online Audio needs no Homebrew or FFmpeg.
+## Use Online Audio
 
-On the first import, Online Audio downloads a managed `yt-dlp` binary into Live's extension storage (about 35 MB). It checks for updates about once a day.
+1. Right-click a clip slot, an Arrangement selection, or an audio track.
+2. Choose **Extensions → Online Audio: Import…**
+3. Search for a song or paste a YouTube, YouTube Music, or SoundCloud URL.
+4. Pick a result, then select **Import** or press <kbd>Return</kbd>. Online Audio places it in your set.
+
 
 ## Requirements
 
-- [Ableton Live 12.4.5 public beta](https://ableton.github.io/extensions-sdk/) with Extensions (the Extensions SDK is beta-only for now)
-- An internet connection
+- Ableton Live 12.4.5 public beta with Extensions
 
-That is all musicians need. The Ableton Extensions SDK is required only for development.
+On the first import, Online Audio downloads a managed `yt-dlp` binary into Live's extension storage (about 35 MB). It checks for updates about once a day.
 
 ## Use audio responsibly
 
@@ -62,6 +61,8 @@ cp .env.example .env
 npm start
 ```
 
+The SDK tarballs are proprietary and must not be redistributed.
+
 ### Build a package
 
 ```bash
@@ -78,4 +79,4 @@ Attach the build to a GitHub Release with the asset name `Online-Audio.ablx`. Th
 
 ## Open source
 
-The source code is available under the [MIT License](LICENSE). Ableton's proprietary SDK tarballs are not included and must not be redistributed.
+The source code is available under the [MIT License](LICENSE).
