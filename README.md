@@ -5,7 +5,7 @@
 Online Audio searches YouTube, YouTube Music, and SoundCloud inside Ableton Live. Review the title, artist, source, and duration, then import your pick directly into a clip slot or Arrangement track.
 
 <p align="center">
-  <a href="../../releases/latest/download/Online-Audio.ablx"><strong>Download Online Audio (.ablx)</strong></a>
+  <a href="../../releases/latest/download/Online-Audio.ablx"><strong>Download extension (.ablx)</strong></a>
 </p>
 
 > Requires **Ableton Live 12.4.5 public beta** with Extensions.
@@ -16,7 +16,7 @@ Online Audio searches YouTube, YouTube Music, and SoundCloud inside Ableton Live
 
 ## Install
 
-1. [Download the latest `.ablx`](../../releases/latest/download/Online-Audio.ablx).
+1. [Download the extension](../../releases/latest/download/Online-Audio.ablx).
 2. Open Live's **Settings**.
 3. Select the **Extensions** tab.
 4. Drag `Online-Audio.ablx` into the **Drag and drop to install** area.
