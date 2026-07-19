@@ -77,6 +77,19 @@ export const LIVE_THEME_CSS = /* css */ `
   }
 }
 
+/* Native UI chrome: text is not selectable like a webpage, except form fields. */
+html,
+body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* Live’s native modal chrome does not take a title from the Extensions API.
    Draw our own title strip so the dialog still has a clear name. */
 .alx-titlebar {
@@ -92,7 +105,6 @@ export const LIVE_THEME_CSS = /* css */ `
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  user-select: none;
 }
 `;
 
