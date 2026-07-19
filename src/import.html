@@ -74,6 +74,9 @@
       var soundcloudLoadTimer = null;
       var soundcloudTrackUrl = "";
       var MIN_SELECTION_S = 0.25;
+      var AGE_RESTRICTED_WARNING = "age-restricted";
+      var AGE_RESTRICTED_MESSAGE =
+        "This audio is age-restricted. Please choose another result.";
 
       var LOGOS = {
         youtube: "__LOGO_YOUTUBE__",
@@ -113,6 +116,10 @@
         if (!item) return "";
         var c = item.candidate;
         return c.source + ":" + c.id + ":" + c.url;
+      }
+
+      function isAgeRestrictedItem(item) {
+        return !!item && item.previewWarning === AGE_RESTRICTED_WARNING;
       }
 
       function stopPreview(opts) {
@@ -206,17 +213,38 @@
         lastStoppedPreviewTime = previewStart;
         previewLoading = false;
         previewReady = false;
-        previewError = "";
+        previewError = isAgeRestrictedItem(item) ? AGE_RESTRICTED_MESSAGE : "";
         updatePreviewUi();
-        if (item) {
+        if (item && !isAgeRestrictedItem(item)) {
           loadPreview(item, previewGen);
         }
       }
 
-      function previewErrorMessage(err) {
-        return String(err && err.message ? err.message : err)
-          .split("\n")[0]
-          .slice(0, 150);
+      function rawPreviewErrorMessage(err) {
+        return String(err && err.message ? err.message : err).split("\n")[0];
+      }
+
+      function isAgeRestrictedPreviewError(item, err) {
+        if (!item || item.candidate.source !== "youtube") return false;
+        return /(?:\bage[- ]?restrict(?:ed|ion)?\b|\b(?:confirm|verify) (?:your )?age\b|\bmay be inappropriate for some users\b)/i.test(
+          rawPreviewErrorMessage(err),
+        );
+      }
+
+      function previewErrorMessage(err, item) {
+        if (isAgeRestrictedPreviewError(item, err)) {
+          return AGE_RESTRICTED_MESSAGE;
+        }
+        return rawPreviewErrorMessage(err).slice(0, 150);
+      }
+
+      function applyPreviewError(item, err) {
+        var ageRestricted = isAgeRestrictedPreviewError(item, err);
+        previewError = ageRestricted
+          ? AGE_RESTRICTED_MESSAGE
+          : previewErrorMessage(err, item);
+        if (ageRestricted) item.previewWarning = AGE_RESTRICTED_WARNING;
+        return ageRestricted;
       }
 
       function focusPreviewTransport() {
@@ -830,14 +858,21 @@
           if (gen !== previewGen || ctrl.signal.aborted) return;
           previewLoading = false;
           previewReady = false;
-          previewError = previewErrorMessage(err);
-          updatePreviewUi();
+          if (applyPreviewError(item, err)) render();
+          else updatePreviewUi();
         } finally {
           if (previewAbort === ctrl) previewAbort = null;
         }
       }
 
       function loadPreview(item, gen) {
+        if (isAgeRestrictedItem(item)) {
+          previewLoading = false;
+          previewReady = false;
+          previewError = AGE_RESTRICTED_MESSAGE;
+          updatePreviewUi();
+          return;
+        }
         if (
           item.candidate.source === "youtube" &&
           /^[a-zA-Z0-9_-]{11}$/.test(item.candidate.id)
@@ -863,6 +898,10 @@
         var panel = document.getElementById("preview");
         if (!panel) return;
         var item = currentItem();
+        var ageRestricted = isAgeRestrictedItem(item);
+        panel.classList.toggle("age-restricted", ageRestricted);
+        var importButton = document.getElementById("importButton");
+        if (importButton) importButton.disabled = !item || ageRestricted;
         panel.hidden = !item;
         if (!item) return;
 
@@ -1121,6 +1160,11 @@
           if (previewLoading) return;
           var item = currentItem();
           if (!item) return;
+          if (isAgeRestrictedItem(item)) {
+            previewError = AGE_RESTRICTED_MESSAGE;
+            updatePreviewUi();
+            return;
+          }
           previewError = "";
           loadPreview(item, previewGen);
           return;
@@ -1191,9 +1235,18 @@
         visible.forEach(function (s, i) {
           var it = s.candidate;
           var brand = s.brand || it.source;
+          var ageRestricted = isAgeRestrictedItem(s);
           var row = document.createElement("button");
           row.type = "button";
-          row.className = "row" + (i === selected ? " selected" : "");
+          row.className =
+            "row" +
+            (ageRestricted ? " age-restricted" : "") +
+            (i === selected ? " selected" : "");
+          row.setAttribute("aria-selected", i === selected ? "true" : "false");
+          if (ageRestricted) {
+            row.setAttribute("aria-invalid", "true");
+            row.title = AGE_RESTRICTED_MESSAGE;
+          }
           row.innerHTML =
             '<span class="badge">' +
             brandIcon(brand) +
@@ -1202,7 +1255,10 @@
             '<span class="dur"></span>';
           row.querySelector(".title").textContent = it.title;
           row.querySelector(".sub").textContent =
-            s.subtitle || it.channel || it.source;
+            (ageRestricted && AGE_RESTRICTED_MESSAGE) ||
+            s.subtitle ||
+            it.channel ||
+            it.source;
           row.querySelector(".dur").textContent = fmtDuration(it.durationS);
           row.addEventListener("click", function () {
             selected = i;
@@ -1234,7 +1290,7 @@
 
       function confirmPick() {
         var item = visible[selected];
-        if (!item) return;
+        if (!item || isAgeRestrictedItem(item)) return;
         var candidate = Object.assign({}, item.candidate);
         var result = { candidate: candidate };
         if (previewDuration > 0) {
@@ -1902,6 +1958,20 @@
           filter: none;
         }
       }
+      .row.age-restricted .sub {
+        color: #8c1e1e;
+      }
+      .row.age-restricted.selected .sub {
+        color: #c62828;
+      }
+      @media (prefers-color-scheme: dark) {
+        .row.age-restricted .sub {
+          color: #ff8585;
+        }
+        .row.age-restricted.selected .sub {
+          color: #b02222;
+        }
+      }
       .empty {
         padding: 2em 1.4em 1.4em;
         color: var(--p-live-empty-text);
@@ -1983,6 +2053,14 @@
       .preview-status {
         color: var(--p-live-surface-text);
         font-size: 9px;
+      }
+      .preview.age-restricted .preview-status {
+        color: #8c1e1e;
+      }
+      @media (prefers-color-scheme: dark) {
+        .preview.age-restricted .preview-status {
+          color: #ff8585;
+        }
       }
       .preview-transport {
         display: flex;
@@ -2275,6 +2353,9 @@
       .button:active {
         background: var(--p-live-accent-primary);
         color: #121212;
+      }
+      .button:disabled {
+        opacity: 0.45;
       }
     </style>
   </head>

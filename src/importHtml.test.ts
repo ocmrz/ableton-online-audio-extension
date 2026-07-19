@@ -65,3 +65,40 @@ test("Shift+Space resumes from a paused seek after playback ends", async () => {
   assert.equal(result.lastStoppedPreviewTime, 5);
   assert.equal(result.playedAt, 5);
 });
+
+test("age-restricted YouTube previews become actionable warnings", async () => {
+  const script = await readInlineScript();
+  const context = vm.createContext({
+    document: {
+      title: "",
+      addEventListener() {},
+    },
+    window: {},
+  });
+  new vm.Script(script, { filename: "import.html" }).runInContext(context);
+
+  const result = vm.runInContext(
+    `
+      (() => {
+        var item = { candidate: { source: "youtube" } };
+        var classified = applyPreviewError(
+          item,
+          new Error("Sign in to confirm your age"),
+        );
+        return {
+          classified: classified,
+          warning: item.previewWarning,
+          message: previewError,
+        };
+      })()
+    `,
+    context,
+  ) as { classified: boolean; warning: string; message: string };
+
+  assert.equal(result.classified, true);
+  assert.equal(result.warning, "age-restricted");
+  assert.equal(
+    result.message,
+    "This audio is age-restricted. Please choose another result.",
+  );
+});

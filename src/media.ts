@@ -22,6 +22,8 @@ const IOS_USER_AGENT =
 const ANDROID_VR_USER_AGENT =
   "com.google.android.apps.youtube.vr.oculus/1.65.10 " +
   "(Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip";
+export const YOUTUBE_AGE_RESTRICTED_MESSAGE =
+  "This audio is age-restricted. Please choose another result.";
 
 export type MediaProfile = "preview" | "download";
 
@@ -64,6 +66,13 @@ interface YoutubeClient {
   context: Record<string, unknown>;
 }
 
+class YoutubeAgeRestrictionError extends Error {
+  constructor() {
+    super(YOUTUBE_AGE_RESTRICTED_MESSAGE);
+    this.name = "YoutubeAgeRestrictionError";
+  }
+}
+
 const YOUTUBE_CLIENTS: YoutubeClient[] = [
   {
     userAgent: IOS_USER_AGENT,
@@ -89,6 +98,22 @@ const YOUTUBE_CLIENTS: YoutubeClient[] = [
     },
   },
 ];
+
+export function isYoutubeAgeRestriction(
+  status: string | undefined,
+  reason: string | undefined,
+): boolean {
+  if (
+    status === "AGE_CHECK_REQUIRED" ||
+    status === "AGE_VERIFICATION_REQUIRED" ||
+    status === "CONTENT_CHECK_REQUIRED"
+  ) {
+    return true;
+  }
+  return /(?:\bage[- ]?restrict(?:ed|ion)?\b|\b(?:confirm|verify) (?:your )?age\b|\bmay be inappropriate for some users\b)/i.test(
+    reason || "",
+  );
+}
 
 function cacheKey(candidate: Candidate, profile: MediaProfile): string {
   return `${profile}:${candidate.source}:${candidate.id}:${candidate.url}`;
@@ -172,6 +197,14 @@ async function resolveYoutubeWithClient(
 
   const data = (await response.json()) as YoutubePlayerResponse;
   if (data.playabilityStatus?.status !== "OK") {
+    if (
+      isYoutubeAgeRestriction(
+        data.playabilityStatus?.status,
+        data.playabilityStatus?.reason,
+      )
+    ) {
+      throw new YoutubeAgeRestrictionError();
+    }
     throw new Error(
       data.playabilityStatus?.reason || "YouTube preview is unavailable.",
     );
@@ -235,6 +268,7 @@ async function resolveYoutubeDirect(
   }
 
   let lastError: unknown = new Error("YouTube preview is unavailable.");
+  let ageRestrictionError: YoutubeAgeRestrictionError | null = null;
   for (const client of YOUTUBE_CLIENTS) {
     try {
       return await resolveYoutubeWithClient(
@@ -245,10 +279,13 @@ async function resolveYoutubeDirect(
       );
     } catch (error) {
       if (signal.aborted) throw new Error("aborted");
+      if (error instanceof YoutubeAgeRestrictionError) {
+        ageRestrictionError = error;
+      }
       lastError = error;
     }
   }
-  throw lastError;
+  throw ageRestrictionError || lastError;
 }
 
 export function parseResolvedMediaOutput(stdout: string): ResolvedMedia {
