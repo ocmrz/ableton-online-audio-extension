@@ -16,10 +16,6 @@ Online Audio searches YouTube, YouTube Music, and SoundCloud inside Ableton Live
 
 ## How to use
 
-<p align="left">
-  <img src="docs/images/online-audio-menu.png" alt="Ableton Live context menu showing Extensions and Online Audio: Import" width="440">
-</p>
-
 1. Right-click a clip slot, an Arrangement selection, or an audio track.
 2. Choose **Extensions → Online Audio: Import…**
 3. Search for a song or paste a YouTube, YouTube Music, or SoundCloud URL.
