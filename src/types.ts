@@ -19,6 +19,11 @@ export interface ScoredCandidate {
   notes: string[];
 }
 
+export interface TimeRange {
+  startS: number;
+  endS: number;
+}
+
 export function artistStr(c: Candidate): string {
   return c.artists.join(", ");
 }
