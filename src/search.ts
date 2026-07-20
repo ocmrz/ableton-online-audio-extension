@@ -4,7 +4,12 @@ import { URL } from "node:url";
 
 import { archiveIdFromUrl } from "./detect.js";
 import { durationFromArchiveFiles } from "./media.js";
-import type { Candidate, ItemKind, MediaSource } from "./types.js";
+import type {
+  Candidate,
+  ItemKind,
+  MediaSource,
+  OpenverseProvider,
+} from "./types.js";
 import { runProcess } from "./process.js";
 
 const SEARCH_LIMIT = 5;
@@ -14,6 +19,16 @@ const BBC_SEARCH_URL =
   "https://sound-effects-api.bbcrewind.co.uk/api/sfx/search";
 const ARCHIVE_SEARCH_URL = "https://archive.org/advancedsearch.php";
 const ARCHIVE_METADATA_URL = "https://archive.org/metadata";
+const OPENVERSE_AUDIO_SEARCH_URL = "https://api.openverse.org/v1/audio/";
+const OPENVERSE_USER_AGENT =
+  "Online-Audio/0.3 (Ableton Live extension; +https://github.com/)";
+const OPENVERSE_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const OPENVERSE_PROVIDERS = [
+  "freesound",
+  "jamendo",
+  "wikimedia_audio",
+] as const;
 
 const PRINT_FMT = [
   "%(id)s",
@@ -1224,6 +1239,142 @@ export async function searchArchive(
   return withDeadline(work, SEARCH_TIMEOUT_MS + 2_000, [], signal);
 }
 
+interface OpenverseAudioResult {
+  id?: string;
+  title?: string;
+  foreign_landing_url?: string;
+  creator?: string | null;
+  provider?: string;
+  source?: string;
+  category?: string | null;
+  duration?: number | null;
+  mature?: boolean;
+}
+
+export function openverseProvider(
+  value: string | null | undefined,
+): OpenverseProvider | null {
+  if (
+    value === "freesound" ||
+    value === "jamendo" ||
+    value === "wikimedia_audio"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+export function openverseProviderLabel(provider: OpenverseProvider): string {
+  switch (provider) {
+    case "freesound":
+      return "Freesound";
+    case "jamendo":
+      return "Jamendo";
+    case "wikimedia_audio":
+      return "Wikimedia Commons";
+  }
+}
+
+export function openverseItemKind(
+  provider: OpenverseProvider,
+  category: string | null | undefined,
+): ItemKind {
+  if (provider === "freesound") return "sound-effect";
+  if (provider === "jamendo") return "music";
+  const cat = (category ?? "").toLowerCase();
+  if (
+    /\b(sound.?effect|effects?|foley|ambient|field.?recording)\b/.test(cat)
+  ) {
+    return "sound-effect";
+  }
+  return "music";
+}
+
+function openverseDurationS(durationMs: number | null | undefined): number | null {
+  if (typeof durationMs !== "number" || !Number.isFinite(durationMs)) {
+    return null;
+  }
+  if (durationMs <= 0) return null;
+  return durationMs / 1000;
+}
+
+/**
+ * Search openly licensed audio through the public Openverse API (Freesound,
+ * Jamendo, Wikimedia Commons). Failures stay isolated from other providers.
+ */
+export async function searchOpenverse(
+  query: string,
+  signal?: AbortSignal,
+): Promise<Candidate[]> {
+  const work = (async () => {
+    throwIfAborted(signal);
+    const ctrl = new AbortController();
+    const onOuter = () => ctrl.abort();
+    signal?.addEventListener("abort", onOuter, { once: true });
+    const timer = setTimeout(() => ctrl.abort(), SEARCH_TIMEOUT_MS);
+    try {
+      // Build the query string explicitly. Ableton's Extension Host does not
+      // provide the web URLSearchParams global.
+      const url =
+        `${OPENVERSE_AUDIO_SEARCH_URL}?q=${encodeURIComponent(query)}` +
+        `&page_size=${SEARCH_LIMIT * 3}` +
+        `&source=${encodeURIComponent(OPENVERSE_PROVIDERS.join(","))}` +
+        `&mature=false`;
+      const res = await fetch(url, {
+        signal: ctrl.signal,
+        headers: {
+          Accept: "application/json",
+          "User-Agent": OPENVERSE_USER_AGENT,
+        },
+      });
+      if (!res.ok) throw new Error(`Openverse search HTTP ${res.status}`);
+      const data = (await res.json()) as { results?: OpenverseAudioResult[] };
+      const candidates: Candidate[] = [];
+      for (const item of data.results ?? []) {
+        if (candidates.length >= SEARCH_LIMIT * 3) break;
+        if (item.mature) continue;
+        const id = item.id?.trim();
+        const title = item.title?.trim();
+        const landing = item.foreign_landing_url?.trim();
+        const provider = openverseProvider(item.source ?? item.provider);
+        if (!id || !OPENVERSE_UUID_RE.test(id) || !title || !landing || !provider) {
+          continue;
+        }
+        let landingUrl: URL;
+        try {
+          landingUrl = new URL(landing);
+        } catch {
+          continue;
+        }
+        if (landingUrl.protocol !== "https:") continue;
+        const creator = item.creator?.trim();
+        candidates.push({
+          id,
+          url: landingUrl.toString(),
+          title,
+          artists: creator ? [creator] : [],
+          album: openverseProviderLabel(provider),
+          durationS: openverseDurationS(item.duration),
+          source: "openverse",
+          channel: openverseProviderLabel(provider),
+          searchRank: candidates.length,
+          kind: openverseItemKind(provider, item.category),
+          provider,
+        });
+      }
+      return candidates;
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onOuter);
+    }
+  })().catch((err: unknown) => {
+    console.error("[search openverse]", err);
+    return [] as Candidate[];
+  });
+
+  return withDeadline(work, SEARCH_TIMEOUT_MS + 2_000, [], signal);
+}
+
 export async function resolveArchiveCandidate(
   id: string,
   signal?: AbortSignal,
@@ -1303,6 +1454,7 @@ export function mergeSearchResults(
   soundcloud: Candidate[],
   bbc: Candidate[] = [],
   archive: Candidate[] = [],
+  openverse: Candidate[] = [],
 ): Candidate[] {
   const seen = new Set<string>();
   const out: Candidate[] = [];
@@ -1312,6 +1464,7 @@ export function mergeSearchResults(
     ...soundcloud,
     ...bbc,
     ...archive,
+    ...openverse,
   ]) {
     const key = `${c.source}:${c.id}`;
     if (seen.has(key)) continue;
@@ -1333,8 +1486,9 @@ export async function searchBoth(
     searchSoundCloud(query, opts),
     searchBbc(query, opts?.signal),
     searchArchive(query, opts?.signal),
-  ]).then(([ytm, yt, sc, bbc, archive]) =>
-    mergeSearchResults(ytm, yt, sc, bbc, archive),
+    searchOpenverse(query, opts?.signal),
+  ]).then(([ytm, yt, sc, bbc, archive, openverse]) =>
+    mergeSearchResults(ytm, yt, sc, bbc, archive, openverse),
   );
 
   // Cancel must settle the progress dialog even if fetch ignores AbortSignal.

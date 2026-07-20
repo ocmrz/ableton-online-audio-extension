@@ -9,14 +9,16 @@ import { MediaResolver, type ResolvedMedia } from "./media.js";
 import { rankCandidates } from "./rank.js";
 import {
   mergeSearchResults,
+  openverseProvider,
   resolveUrl,
   searchArchive,
   searchBbc,
+  searchOpenverse,
   searchSoundCloud,
   searchYouTube,
   searchYouTubeMusic,
 } from "./search.js";
-import type { Candidate } from "./types.js";
+import type { Candidate, OpenverseProvider } from "./types.js";
 import { artistStr } from "./types.js";
 
 export type Brand =
@@ -24,7 +26,20 @@ export type Brand =
   | "youtube-music"
   | "soundcloud"
   | "bbc"
-  | "archive";
+  | "archive"
+  | "openverse";
+
+function isOpenverseLandingHost(host: string): boolean {
+  return (
+    host === "freesound.org" ||
+    host.endsWith(".freesound.org") ||
+    host === "jamendo.com" ||
+    host.endsWith(".jamendo.com") ||
+    host === "commons.wikimedia.org" ||
+    host === "openverse.org" ||
+    host.endsWith(".openverse.org")
+  );
+}
 
 export interface SearchServer {
   port: number;
@@ -58,7 +73,8 @@ function candidateFromValue(value: unknown): Candidate {
     source !== "youtube" &&
     source !== "soundcloud" &&
     source !== "bbc" &&
-    source !== "archive"
+    source !== "archive" &&
+    source !== "openverse"
   ) {
     throw new Error("Unsupported preview source.");
   }
@@ -87,13 +103,17 @@ function candidateFromValue(value: unknown): Candidate {
         ? host === "soundcloud.com" || host.endsWith(".soundcloud.com")
         : source === "bbc"
           ? host === "sound-effects.bbcrewind.co.uk"
-          : host === "archive.org";
+          : source === "archive"
+            ? host === "archive.org"
+            : isOpenverseLandingHost(host);
   if (!validHost || sourceUrl.protocol !== "https:") {
     throw new Error("Unsupported preview URL.");
   }
 
   const kind =
     raw.kind === "music" || raw.kind === "sound-effect" ? raw.kind : undefined;
+  const provider =
+    source === "openverse" ? openverseProvider(raw.provider) : null;
 
   return {
     id: raw.id,
@@ -108,6 +128,7 @@ function candidateFromValue(value: unknown): Candidate {
     channel: typeof raw.channel === "string" ? raw.channel : null,
     searchRank: typeof raw.searchRank === "number" ? raw.searchRank : 0,
     ...(kind ? { kind } : {}),
+    ...(provider ? { provider } : {}),
   };
 }
 
@@ -188,6 +209,7 @@ async function proxyMedia(
 export function brandFor(c: Candidate): Brand {
   if (c.source === "bbc") return "bbc";
   if (c.source === "archive") return "archive";
+  if (c.source === "openverse") return "openverse";
   if (c.source === "soundcloud") return "soundcloud";
   if (
     c.url.includes("music.youtube.com") ||
@@ -204,6 +226,8 @@ function itemType(c: Candidate): "music" | "sound-effect" {
 }
 
 function toItem(c: Candidate, score: number | null, notes: string) {
+  const provider: OpenverseProvider | undefined =
+    c.source === "openverse" ? c.provider : undefined;
   return {
     id: c.id,
     title: c.title,
@@ -211,6 +235,7 @@ function toItem(c: Candidate, score: number | null, notes: string) {
     source: c.source,
     brand: brandFor(c),
     type: itemType(c),
+    ...(provider ? { provider } : {}),
     durationS: c.durationS,
     score,
     notes,
@@ -271,7 +296,7 @@ export async function startSearchServer(opts: {
         }
 
         const rankedQuery = detected.query;
-        const [ytm, yt, sc, bbc, archive] = await Promise.all([
+        const [ytm, yt, sc, bbc, archive, openverse] = await Promise.all([
           searchYouTubeMusic(rankedQuery).catch(() => [] as Candidate[]),
           searchYouTube(opts.ytDlpPath, rankedQuery).catch(
             () => [] as Candidate[],
@@ -281,9 +306,10 @@ export async function startSearchServer(opts: {
           }).catch(() => [] as Candidate[]),
           searchBbc(rankedQuery).catch(() => [] as Candidate[]),
           searchArchive(rankedQuery).catch(() => [] as Candidate[]),
+          searchOpenverse(rankedQuery).catch(() => [] as Candidate[]),
         ]);
         const ranked = rankCandidates(
-          mergeSearchResults(ytm, yt, sc, bbc, archive),
+          mergeSearchResults(ytm, yt, sc, bbc, archive, openverse),
           rankedQuery,
         );
         const items = ranked.map((s) =>

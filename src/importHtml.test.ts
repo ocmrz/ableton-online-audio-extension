@@ -194,3 +194,220 @@ test("source and type filters are combined by intersection", async () => {
   assert.deepEqual(Array.from(result.music), ["track"]);
   assert.deepEqual(Array.from(result.archiveOnly), ["concert", "field"]);
 });
+
+function openverseFilterContext(script: string) {
+  const elements = new Map<string, Record<string, unknown>>();
+  const makeEl = (id: string) => {
+    const el: Record<string, unknown> = {
+      id,
+      hidden: id === "openverseSubs",
+      classList: {
+        _values: new Set<string>(),
+        toggle(name: string, force?: boolean) {
+          const values = el.classList as {
+            _values: Set<string>;
+            toggle: (name: string, force?: boolean) => boolean;
+          };
+          if (force === true) values._values.add(name);
+          else if (force === false) values._values.delete(name);
+          else if (values._values.has(name)) values._values.delete(name);
+          else values._values.add(name);
+          return values._values.has(name);
+        },
+      },
+      setAttribute() {},
+      title: "",
+    };
+    elements.set(id, el);
+    return el;
+  };
+  makeEl("openverseNest");
+  makeEl("openverseWrap");
+  makeEl("openverseSubs");
+  makeEl("openverseChevron");
+
+  const context = vm.createContext({
+    document: {
+      title: "",
+      addEventListener() {},
+      getElementById(id: string) {
+        return elements.get(id) ?? null;
+      },
+      querySelectorAll() {
+        return [];
+      },
+    },
+    window: {},
+  });
+  new vm.Script(script, { filename: "import.html" }).runInContext(context);
+  // Avoid full DOM rendering when exercising filter toggles in isolation.
+  vm.runInContext(
+    `
+      render = function () {
+        visible = filtered();
+        if (selected >= visible.length) {
+          selected = Math.max(0, visible.length - 1);
+        }
+      };
+    `,
+    context,
+  );
+  return { context, elements };
+}
+
+test("Openverse results stay hidden until the source nest is opted in", async () => {
+  const script = await readInlineScript();
+  const { context } = openverseFilterContext(script);
+
+  const result = vm.runInContext(
+    `
+      (() => {
+        ranked = [
+          {
+            brand: "youtube",
+            type: "music",
+            candidate: { id: "track", source: "youtube" },
+          },
+          {
+            brand: "openverse",
+            type: "sound-effect",
+            provider: "freesound",
+            candidate: {
+              id: "rain",
+              source: "openverse",
+              provider: "freesound",
+              kind: "sound-effect",
+            },
+          },
+          {
+            brand: "openverse",
+            type: "music",
+            provider: "jamendo",
+            candidate: {
+              id: "piano",
+              source: "openverse",
+              provider: "jamendo",
+              kind: "music",
+            },
+          },
+        ];
+        var defaults = filtered().map(function (item) {
+          return item.candidate.id;
+        });
+        toggleFilter("openverse");
+        var allOpenverse = filtered().map(function (item) {
+          return item.candidate.id;
+        });
+        toggleFilter("openverse-freesound");
+        var freesoundOnly = filtered().map(function (item) {
+          return item.candidate.id;
+        });
+        return {
+          defaults: defaults,
+          allOpenverse: allOpenverse,
+          freesoundOnly: freesoundOnly,
+          parentAfterSub: filters.openverse,
+          freesound: filters["openverse-freesound"],
+          jamendo: filters["openverse-jamendo"],
+        };
+      })()
+    `,
+    context,
+  ) as {
+    defaults: string[];
+    allOpenverse: string[];
+    freesoundOnly: string[];
+    parentAfterSub: boolean;
+    freesound: boolean;
+    jamendo: boolean;
+  };
+
+  assert.deepEqual(Array.from(result.defaults), ["track"]);
+  assert.deepEqual(Array.from(result.allOpenverse), ["rain", "piano"]);
+  assert.deepEqual(Array.from(result.freesoundOnly), ["rain"]);
+  assert.equal(result.parentAfterSub, false);
+  assert.equal(result.freesound, true);
+  assert.equal(result.jamendo, false);
+});
+
+test("source filters are single-select like Ableton categories", async () => {
+  const script = await readInlineScript();
+  const { context } = openverseFilterContext(script);
+
+  const result = vm.runInContext(
+    `
+      (() => {
+        toggleFilter("openverse-freesound");
+        toggleFilter("youtube");
+        return {
+          youtube: filters.youtube,
+          openverse: filters.openverse,
+          freesound: filters["openverse-freesound"],
+          expanded: openverseExpanded,
+        };
+      })()
+    `,
+    context,
+  ) as {
+    youtube: boolean;
+    openverse: boolean;
+    freesound: boolean;
+    expanded: boolean;
+  };
+
+  assert.equal(result.youtube, true);
+  assert.equal(result.openverse, false);
+  assert.equal(result.freesound, false);
+  assert.equal(result.expanded, false);
+});
+
+test("type filters are single-select", async () => {
+  const script = await readInlineScript();
+  const { context } = openverseFilterContext(script);
+
+  const result = vm.runInContext(
+    `
+      (() => {
+        toggleFilter("music");
+        toggleFilter("sound-effect");
+        return {
+          music: filters.music,
+          soundEffect: filters["sound-effect"],
+        };
+      })()
+    `,
+    context,
+  ) as { music: boolean; soundEffect: boolean };
+
+  assert.equal(result.music, false);
+  assert.equal(result.soundEffect, true);
+});
+
+test("Openverse chevron selects the category when expanding", async () => {
+  const script = await readInlineScript();
+  const { context, elements } = openverseFilterContext(script);
+
+  const result = vm.runInContext(
+    `
+      (() => {
+        toggleOpenverseExpand();
+        return {
+          expanded: openverseExpanded,
+          openverse: filters.openverse,
+          hidden: document.getElementById("openverseSubs").hidden,
+        };
+      })()
+    `,
+    context,
+  ) as { expanded: boolean; openverse: boolean; hidden: boolean };
+
+  assert.equal(result.expanded, true);
+  assert.equal(result.openverse, true);
+  assert.equal(result.hidden, false);
+  assert.equal(
+    (
+      elements.get("openverseNest")?.classList as { _values: Set<string> }
+    )._values.has("expanded"),
+    true,
+  );
+});

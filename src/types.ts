@@ -1,5 +1,13 @@
 /** One search / URL result that could be imported into Live. */
-export type MediaSource = "youtube" | "soundcloud" | "bbc" | "archive";
+export type MediaSource =
+  | "youtube"
+  | "soundcloud"
+  | "bbc"
+  | "archive"
+  | "openverse";
+
+/** Upstream Openverse catalog provider (not a top-level MediaSource). */
+export type OpenverseProvider = "freesound" | "jamendo" | "wikimedia_audio";
 
 /** UI type filter: Music vs Sound Effect. */
 export type ItemKind = "music" | "sound-effect";
@@ -16,6 +24,8 @@ export interface Candidate {
   searchRank: number;
   /** When set (e.g. Archive), overrides source-based Music / Sound Effect typing. */
   kind?: ItemKind;
+  /** Openverse upstream provider when source is openverse. */
+  provider?: OpenverseProvider;
 }
 
 export interface ScoredCandidate {

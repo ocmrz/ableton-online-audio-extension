@@ -1,3 +1,5 @@
+import { URL } from "node:url";
+
 import type { Candidate } from "./types.js";
 import { runProcess } from "./process.js";
 
@@ -20,6 +22,11 @@ const ARCHIVE_DOWNLOAD_BASE_URL = "https://archive.org/download";
 const ARCHIVE_AUDIO_EXT = /^(mp3|ogg|flac|wav|m4a|aif|aiff)$/i;
 const ARCHIVE_USER_AGENT =
   "Online-Audio/0.3 (Ableton Live extension; +https://github.com/)";
+const OPENVERSE_AUDIO_DETAIL_URL = "https://api.openverse.org/v1/audio";
+const OPENVERSE_USER_AGENT =
+  "Online-Audio/0.3 (Ableton Live extension; +https://github.com/)";
+const OPENVERSE_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const YOUTUBE_PLAYER_URL =
   "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const IOS_USER_AGENT =
@@ -282,6 +289,74 @@ async function resolveArchiveDirect(
     url: `${ARCHIVE_DOWNLOAD_BASE_URL}/${encodeURIComponent(candidate.id)}/${encodeURIComponent(file.name)}`,
     ext,
     durationS: archiveLengthS(file) ?? candidate.durationS,
+    httpHeaders: {},
+  };
+}
+
+function openverseMediaExt(url: string, filetype: string | null | undefined): string {
+  const fromType = (filetype ?? "").toLowerCase().replace(/^\./, "");
+  if (/^[a-z0-9]{2,5}$/.test(fromType)) return fromType;
+  try {
+    const path = new URL(url).pathname;
+    const match = /\.([a-zA-Z0-9]{2,5})$/.exec(path);
+    if (match?.[1]) return match[1].toLowerCase();
+  } catch {
+    // ignore
+  }
+  return "mp3";
+}
+
+async function resolveOpenverseDirect(
+  candidate: Candidate,
+  signal: AbortSignal,
+): Promise<ResolvedMedia> {
+  if (!OPENVERSE_UUID_RE.test(candidate.id)) {
+    throw new Error("Invalid Openverse id.");
+  }
+
+  const res = await fetch(
+    `${OPENVERSE_AUDIO_DETAIL_URL}/${encodeURIComponent(candidate.id)}/`,
+    {
+      signal,
+      headers: {
+        Accept: "application/json",
+        "User-Agent": OPENVERSE_USER_AGENT,
+      },
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`Openverse detail HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as {
+    url?: string;
+    filetype?: string | null;
+    duration?: number | null;
+  };
+  const mediaUrl = data.url?.trim();
+  if (!mediaUrl) {
+    throw new Error("Openverse item has no playable audio file.");
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(mediaUrl);
+  } catch {
+    throw new Error("Openverse item returned an invalid audio URL.");
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error("Openverse item returned an unsupported audio URL.");
+  }
+
+  const durationS =
+    typeof data.duration === "number" &&
+    Number.isFinite(data.duration) &&
+    data.duration > 0
+      ? data.duration / 1000
+      : candidate.durationS;
+
+  return {
+    url: parsed.toString(),
+    ext: openverseMediaExt(parsed.toString(), data.filetype),
+    durationS,
     httpHeaders: {},
   };
 }
@@ -560,6 +635,10 @@ export class MediaResolver {
 
     if (candidate.source === "archive") {
       return resolveArchiveDirect(candidate, signal, profile);
+    }
+
+    if (candidate.source === "openverse") {
+      return resolveOpenverseDirect(candidate, signal);
     }
 
     if (candidate.source === "youtube") {

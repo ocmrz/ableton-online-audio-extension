@@ -31,9 +31,14 @@
         soundcloud: false,
         bbc: false,
         archive: false,
+        openverse: false,
+        "openverse-freesound": false,
+        "openverse-jamendo": false,
+        "openverse-wikimedia_audio": false,
         music: false,
         "sound-effect": false,
       };
+      var openverseExpanded = false;
       var selected = 0;
       var visible = [];
       var ranked = [];
@@ -88,14 +93,40 @@
         soundcloud: "__LOGO_SOUNDCLOUD__",
         bbc: "__LOGO_BBC__",
         archive: "__LOGO_ARCHIVE__",
+        openverse: "__LOGO_OPENVERSE__",
       };
+
+      var OPENVERSE_PROVIDER_FILTERS = {
+        freesound: "openverse-freesound",
+        jamendo: "openverse-jamendo",
+        wikimedia_audio: "openverse-wikimedia_audio",
+      };
+      var OPENVERSE_PROVIDER_KEYS = [
+        "openverse-freesound",
+        "openverse-jamendo",
+        "openverse-wikimedia_audio",
+      ];
+      // Sources are Ableton-style single-select (one chip / one Openverse branch).
+      var SOURCE_FILTER_KEYS = [
+        "youtube",
+        "youtube-music",
+        "soundcloud",
+        "bbc",
+        "archive",
+        "openverse",
+      ].concat(OPENVERSE_PROVIDER_KEYS);
+      var TYPE_FILTER_KEYS = ["music", "sound-effect"];
 
       function brandIcon(brand) {
         var src = LOGOS[brand] || LOGOS.youtube;
-        var wide = brand === "bbc";
+        var wide = brand === "bbc" || brand === "openverse";
         return (
           '<img class="brand-icon' +
-          (wide ? " brand-icon-bbc" : "") +
+          (wide
+            ? brand === "bbc"
+              ? " brand-icon-bbc"
+              : " brand-icon-openverse"
+            : "") +
           '" src="' +
           src +
           '" alt="" width="' +
@@ -1712,13 +1743,26 @@
         updatePlaybackUi();
       }
 
+      function anyOpenverseProviderFilterOn() {
+        return (
+          filters["openverse-freesound"] ||
+          filters["openverse-jamendo"] ||
+          filters["openverse-wikimedia_audio"]
+        );
+      }
+
+      function anyOpenverseFilterOn() {
+        return filters.openverse || anyOpenverseProviderFilterOn();
+      }
+
       function anySourceFilterOn() {
         return (
           filters.youtube ||
           filters["youtube-music"] ||
           filters.soundcloud ||
           filters.bbc ||
-          filters.archive
+          filters.archive ||
+          anyOpenverseFilterOn()
         );
       }
 
@@ -1740,6 +1784,19 @@
         return brand === "archive";
       }
 
+      function isOpenverseItem(item) {
+        var brand = item.brand || (item.candidate && item.candidate.source);
+        return brand === "openverse";
+      }
+
+      function openverseProviderOf(item) {
+        return (
+          item.provider ||
+          (item.candidate && item.candidate.provider) ||
+          ""
+        );
+      }
+
       function archiveResultsAllowed() {
         // Opt-in only: Archive is too noisy in the default mixed results.
         // Still allow a pasted archive.org URL (search returns only Archive hits).
@@ -1752,15 +1809,39 @@
         );
       }
 
+      function openverseResultsAllowed() {
+        // Opt-in only: Openverse libre catalogs stay out of the default mix.
+        if (anyOpenverseFilterOn()) return true;
+        return (
+          ranked.length > 0 &&
+          ranked.every(function (item) {
+            return isOpenverseItem(item);
+          })
+        );
+      }
+
+      function openverseSourceMatches(item) {
+        if (!anyOpenverseFilterOn()) return false;
+        if (!anyOpenverseProviderFilterOn()) return true;
+        var provider = openverseProviderOf(item);
+        var key = OPENVERSE_PROVIDER_FILTERS[provider];
+        return !!(key && filters[key]);
+      }
+
+      function sourceMatches(item) {
+        if (!anySourceFilterOn()) return true;
+        if (isOpenverseItem(item)) return openverseSourceMatches(item);
+        return !!filters[item.brand || item.candidate.source];
+      }
+
       function filtered() {
         var allowArchive = archiveResultsAllowed();
+        var allowOpenverse = openverseResultsAllowed();
         return ranked.filter(function (s) {
           if (isArchiveItem(s) && !allowArchive) return false;
-          var sourceMatches =
-            !anySourceFilterOn() ||
-            filters[s.brand || s.candidate.source];
+          if (isOpenverseItem(s) && !allowOpenverse) return false;
           var typeMatches = !anyTypeFilterOn() || filters[itemType(s)];
-          return sourceMatches && typeMatches;
+          return sourceMatches(s) && typeMatches;
         });
       }
 
@@ -1854,18 +1935,128 @@
         closeWithResult(result);
       }
 
+      function syncOpenverseExpand() {
+        var nest = document.getElementById("openverseNest");
+        var wrap = document.getElementById("openverseWrap");
+        var subrow = document.getElementById("openverseSubs");
+        var chevron = document.getElementById("openverseChevron");
+        if (!nest || !subrow || !chevron) return;
+        nest.classList.toggle("expanded", openverseExpanded);
+        if (wrap) {
+          wrap.classList.toggle("has-active", anyOpenverseFilterOn());
+        }
+        subrow.hidden = !openverseExpanded;
+        chevron.setAttribute(
+          "aria-expanded",
+          openverseExpanded ? "true" : "false",
+        );
+        chevron.title = openverseExpanded
+          ? "Hide Openverse providers"
+          : "Show Openverse providers";
+      }
+
       function syncFilterButtons() {
-        document.querySelectorAll(".chip").forEach(function (el) {
+        document.querySelectorAll(".chip[data-filter]").forEach(function (el) {
           var key = el.getAttribute("data-filter");
           el.classList.toggle("active", !!filters[key]);
         });
+        syncOpenverseExpand();
+      }
+
+      function clearSourceFilters() {
+        SOURCE_FILTER_KEYS.forEach(function (key) {
+          filters[key] = false;
+        });
+      }
+
+      function isSourceFilterKey(key) {
+        return SOURCE_FILTER_KEYS.indexOf(key) !== -1;
+      }
+
+      function isOpenverseProviderKey(key) {
+        return OPENVERSE_PROVIDER_KEYS.indexOf(key) !== -1;
+      }
+
+      function isTypeFilterKey(key) {
+        return TYPE_FILTER_KEYS.indexOf(key) !== -1;
+      }
+
+      function clearTypeFilters() {
+        TYPE_FILTER_KEYS.forEach(function (key) {
+          filters[key] = false;
+        });
+      }
+
+      function selectSourceFilter(key) {
+        // Ableton-style: one source branch at a time. Parent = whole category;
+        // a sub replaces the parent; leaving Openverse clears its subselection.
+        clearSourceFilters();
+        // Switching category clears type so Music does not hide FreeSound, etc.
+        clearTypeFilters();
+        if (key === "openverse") {
+          filters.openverse = true;
+          openverseExpanded = true;
+          return;
+        }
+        if (isOpenverseProviderKey(key)) {
+          filters[key] = true;
+          openverseExpanded = true;
+          return;
+        }
+        filters[key] = true;
+        openverseExpanded = false;
+      }
+
+      function selectTypeFilter(key) {
+        var turningOff = !!filters[key];
+        clearTypeFilters();
+        if (!turningOff) filters[key] = true;
       }
 
       function toggleFilter(key) {
-        filters[key] = !filters[key];
+        if (!key || !(key in filters)) return;
+
+        if (isTypeFilterKey(key)) {
+          selectTypeFilter(key);
+        } else if (isSourceFilterKey(key)) {
+          if (filters[key]) {
+            // Clicking the active source clears it (back to the default mix).
+            clearSourceFilters();
+            // Keep the Openverse nest open after clearing a sub so the next
+            // provider is one click away; collapse when leaving the category.
+            if (!isOpenverseProviderKey(key)) openverseExpanded = false;
+          } else {
+            selectSourceFilter(key);
+          }
+        } else {
+          filters[key] = !filters[key];
+        }
+
         syncFilterButtons();
         selected = 0;
         render();
+      }
+
+      function toggleOpenverseExpand(event) {
+        if (event) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        if (openverseExpanded) {
+          openverseExpanded = false;
+          syncOpenverseExpand();
+          return;
+        }
+        // Expanding is tied to selecting the category (Ableton browser style).
+        if (!anyOpenverseFilterOn()) {
+          selectSourceFilter("openverse");
+          syncFilterButtons();
+          selected = 0;
+          render();
+          return;
+        }
+        openverseExpanded = true;
+        syncOpenverseExpand();
       }
 
       async function runSearch(raw, gen) {
@@ -1912,6 +2103,7 @@
               candidate: it.candidate,
               subtitle: it.subtitle,
               brand: it.brand || it.source,
+              provider: it.provider || (it.candidate && it.candidate.provider),
               type: itemType(it),
               score: it.score,
               notes: it.notes,
@@ -1958,11 +2150,15 @@
         var q = document.getElementById("q");
         q.focus();
         q.addEventListener("input", scheduleSearch);
-        document.querySelectorAll(".chip").forEach(function (el) {
+        document.querySelectorAll(".chip[data-filter]").forEach(function (el) {
           el.addEventListener("click", function () {
             toggleFilter(el.getAttribute("data-filter"));
           });
         });
+        var openverseChevron = document.getElementById("openverseChevron");
+        if (openverseChevron) {
+          openverseChevron.addEventListener("click", toggleOpenverseExpand);
+        }
         document
           .getElementById("resultsClear")
           .addEventListener("click", clearResults);
@@ -2357,8 +2553,26 @@
       }
       .chips {
         display: flex;
+        flex-wrap: wrap;
         gap: 4px;
         align-items: center;
+      }
+      .chip-nest {
+        display: contents;
+      }
+      .chip-subrow {
+        flex: 1 1 100%;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        align-items: center;
+        box-sizing: border-box;
+        margin: 1px 0 0;
+        padding: 0 0 0 6px;
+        border-left: 2px solid var(--p-live-chip-active-bg);
+      }
+      .chip-subrow[hidden] {
+        display: none;
       }
       .chip {
         -webkit-appearance: none;
@@ -2379,6 +2593,56 @@
         box-sizing: border-box;
         outline: none;
       }
+      .chip-with-chevron {
+        display: inline-flex;
+        align-items: stretch;
+        gap: 0;
+      }
+      .chip-expandable {
+        padding-right: 4px;
+      }
+      .chip-chevron {
+        -webkit-appearance: none;
+        appearance: none;
+        margin: 0;
+        padding: 0 3px;
+        height: 14px;
+        border: 1px solid transparent;
+        border-left: 0;
+        background: var(--p-live-chip-bg);
+        color: var(--p-live-surface-text);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        cursor: default;
+        box-sizing: border-box;
+        outline: none;
+      }
+      .chip-chevron:focus,
+      .chip-chevron:focus-visible {
+        border-color: var(--p-live-surface-text);
+      }
+      .chip-chevron::after {
+        content: "";
+        width: 0;
+        height: 0;
+        border-style: solid;
+        border-width: 2.5px 0 2.5px 4px;
+        border-color: transparent transparent transparent currentColor;
+      }
+      .chip-nest.expanded .chip-chevron::after {
+        border-width: 4px 2.5px 0 2.5px;
+        border-color: currentColor transparent transparent transparent;
+      }
+      .chip-with-chevron.has-active .chip-expandable,
+      .chip-with-chevron.has-active .chip-chevron {
+        background: var(--p-live-chip-active-bg);
+        color: #121212;
+      }
+      .chip-with-chevron.has-active .chip-expandable .brand-icon {
+        filter: none;
+      }
       .chip .brand-icon {
         width: 10px;
         height: 10px;
@@ -2389,6 +2653,15 @@
       .chip .brand-icon-bbc {
         width: 18px;
         height: 10px;
+      }
+      .chip .brand-icon-openverse {
+        width: 14px;
+        height: 10px;
+      }
+      .badge .brand-icon-openverse,
+      .preview-badge .brand-icon-openverse {
+        width: 18px;
+        height: 14px;
       }
       @media (prefers-color-scheme: dark) {
         .chip .brand-icon,
@@ -3285,6 +3558,59 @@
                 />
                 Internet Archive
               </button>
+              <div class="chip-nest" id="openverseNest">
+                <div class="chip-with-chevron" id="openverseWrap">
+                  <button
+                    class="chip chip-expandable"
+                    type="button"
+                    data-filter="openverse"
+                    title="Openverse"
+                  >
+                  <img
+                    class="brand-icon brand-icon-openverse"
+                    src="__LOGO_OPENVERSE__"
+                    alt=""
+                    width="14"
+                    height="10"
+                  />
+                  Openverse
+                  </button>
+                  <button
+                    class="chip-chevron"
+                    type="button"
+                    id="openverseChevron"
+                    aria-expanded="false"
+                    aria-controls="openverseSubs"
+                    title="Show Openverse providers"
+                  ></button>
+                </div>
+                <div class="chip-subrow" id="openverseSubs" hidden>
+                  <button
+                    class="chip"
+                    type="button"
+                    data-filter="openverse-freesound"
+                    title="Freesound via Openverse"
+                  >
+                    Freesound
+                  </button>
+                  <button
+                    class="chip"
+                    type="button"
+                    data-filter="openverse-jamendo"
+                    title="Jamendo via Openverse"
+                  >
+                    Jamendo
+                  </button>
+                  <button
+                    class="chip"
+                    type="button"
+                    data-filter="openverse-wikimedia_audio"
+                    title="Wikimedia Commons via Openverse"
+                  >
+                    Wikimedia
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

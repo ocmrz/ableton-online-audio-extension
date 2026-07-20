@@ -144,3 +144,53 @@ test("Internet Archive media picks MP3 for preview and WAV for import", async ()
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Openverse media resolves the detail CDN URL", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  globalThis.fetch = async (input) => {
+    requestedUrl = String(input);
+    return new Response(
+      JSON.stringify({
+        url: "https://cdn.freesound.org/previews/401/401275_5121236-hq.mp3",
+        filetype: "mp3",
+        duration: 60116,
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  };
+
+  const candidate: Candidate = {
+    id: "6b072076-066b-45b6-9695-367a6260c96d",
+    url: "https://freesound.org/people/InspectorJ/sounds/401275",
+    title: "Rain, Moderate, C.wav",
+    artists: ["InspectorJ"],
+    album: "Freesound",
+    durationS: 60.116,
+    source: "openverse",
+    channel: "Freesound",
+    searchRank: 0,
+    kind: "sound-effect",
+    provider: "freesound",
+  };
+  const resolver = new MediaResolver("/managed/yt-dlp");
+  try {
+    const media = await resolver.resolve(candidate, undefined, "preview");
+    assert.match(
+      requestedUrl,
+      /api\.openverse\.org\/v1\/audio\/6b072076-066b-45b6-9695-367a6260c96d\//,
+    );
+    assert.equal(
+      media.url,
+      "https://cdn.freesound.org/previews/401/401275_5121236-hq.mp3",
+    );
+    assert.equal(media.ext, "mp3");
+    assert.equal(media.durationS, 60.116);
+  } finally {
+    resolver.close();
+    globalThis.fetch = originalFetch;
+  }
+});

@@ -28,6 +28,7 @@ import logoYoutubeMusic from "../assets/youtube-music.png";
 import logoSoundcloud from "../assets/soundcloud.png";
 import logoBbc from "../assets/bbc.png";
 import logoArchive from "../assets/archive.png";
+import logoOpenverse from "../assets/openverse.png";
 
 let liveFontCss = "";
 
@@ -37,7 +38,8 @@ function withLogos(html: string): string {
     .replaceAll("__LOGO_YOUTUBE_MUSIC__", logoYoutubeMusic)
     .replaceAll("__LOGO_SOUNDCLOUD__", logoSoundcloud)
     .replaceAll("__LOGO_BBC__", logoBbc)
-    .replaceAll("__LOGO_ARCHIVE__", logoArchive);
+    .replaceAll("__LOGO_ARCHIVE__", logoArchive)
+    .replaceAll("__LOGO_OPENVERSE__", logoOpenverse);
   return out;
 }
 function requireDir(dir: string | undefined, name: string): string {

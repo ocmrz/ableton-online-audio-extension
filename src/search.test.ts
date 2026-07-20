@@ -4,9 +4,11 @@ import { test } from "node:test";
 import {
   archiveItemKind,
   isExcludedArchiveDoc,
+  openverseItemKind,
   parseArchiveRuntime,
   searchArchive,
   searchBbc,
+  searchOpenverse,
 } from "./search.js";
 
 test("searchBbc maps BBC API results to sound-effect candidates", async () => {
@@ -322,6 +324,100 @@ test("searchArchive fills missing runtime from item file lengths", async () => {
   try {
     const results = await searchArchive("thunder");
     assert.equal(results[0]?.durationS, 12.5);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("openverseItemKind maps providers to music or sound-effect", () => {
+  assert.equal(openverseItemKind("freesound", null), "sound-effect");
+  assert.equal(openverseItemKind("jamendo", null), "music");
+  assert.equal(openverseItemKind("wikimedia_audio", "music"), "music");
+  assert.equal(
+    openverseItemKind("wikimedia_audio", "sound effect"),
+    "sound-effect",
+  );
+});
+
+test("searchOpenverse maps API results and requests provider filter", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  globalThis.fetch = async (input) => {
+    requestedUrl = String(input);
+    return new Response(
+      JSON.stringify({
+        results: [
+          {
+            id: "6b072076-066b-45b6-9695-367a6260c96d",
+            title: "Rain, Moderate, C.wav",
+            foreign_landing_url:
+              "https://freesound.org/people/InspectorJ/sounds/401275",
+            creator: "InspectorJ",
+            provider: "freesound",
+            source: "freesound",
+            category: null,
+            duration: 60116,
+            mature: false,
+          },
+          {
+            id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            title: "Hidden mature",
+            foreign_landing_url: "https://freesound.org/people/x/sounds/1",
+            creator: "x",
+            source: "freesound",
+            duration: 1000,
+            mature: true,
+          },
+          {
+            id: "11111111-2222-3333-4444-555555555555",
+            title: "Open piano",
+            foreign_landing_url: "https://www.jamendo.com/track/123",
+            creator: "Jam Artist",
+            source: "jamendo",
+            duration: 180000,
+            mature: false,
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  };
+
+  try {
+    const results = await searchOpenverse("rain");
+    assert.match(requestedUrl, /api\.openverse\.org\/v1\/audio\//);
+    assert.match(requestedUrl, /source=freesound%2Cjamendo%2Cwikimedia_audio/);
+    assert.deepEqual(results, [
+      {
+        id: "6b072076-066b-45b6-9695-367a6260c96d",
+        url: "https://freesound.org/people/InspectorJ/sounds/401275",
+        title: "Rain, Moderate, C.wav",
+        artists: ["InspectorJ"],
+        album: "Freesound",
+        durationS: 60.116,
+        source: "openverse",
+        channel: "Freesound",
+        searchRank: 0,
+        kind: "sound-effect",
+        provider: "freesound",
+      },
+      {
+        id: "11111111-2222-3333-4444-555555555555",
+        url: "https://www.jamendo.com/track/123",
+        title: "Open piano",
+        artists: ["Jam Artist"],
+        album: "Jamendo",
+        durationS: 180,
+        source: "openverse",
+        channel: "Jamendo",
+        searchRank: 1,
+        kind: "music",
+        provider: "jamendo",
+      },
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }
