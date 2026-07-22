@@ -469,13 +469,12 @@ async function resolveYoutubeWithClient(
     throw new Error("YouTube returned an unexpected media host.");
   }
 
-  // Validate the signed URL before giving it to the browser. Some clients can
-  // return formats that require a PO token and fail with HTTP 403.
+  // Probe with the range shape used by the eventual consumer.
   const probe = await fetch(mediaUrl, {
     signal,
     headers: {
       "User-Agent": client.userAgent,
-      Range: "bytes=0-0",
+      Range: profile === "download" ? "bytes=0-" : "bytes=0-0",
       "Accept-Encoding": "identity",
     },
   });
@@ -575,7 +574,10 @@ function waitForCaller<T>(
 export class MediaResolver {
   private readonly cache = new Map<string, CacheEntry>();
 
-  constructor(private readonly ytDlpPath: string) {}
+  constructor(
+    private readonly ytDlpPath: string,
+    private readonly processRunner: typeof runProcess = runProcess,
+  ) {}
 
   resolve(
     candidate: Candidate,
@@ -660,7 +662,7 @@ export class MediaResolver {
       }
     }
 
-    const result = await runProcess(
+    const result = await this.processRunner(
       this.ytDlpPath,
       [
         "--skip-download",

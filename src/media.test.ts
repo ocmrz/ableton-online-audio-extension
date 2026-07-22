@@ -47,6 +47,107 @@ test("isYoutubeAgeRestriction recognizes YouTube age gates", () => {
   );
 });
 
+test("YouTube imports fall back when a stream rejects FFmpeg's range", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWarn = console.warn;
+  const probeRanges: string[] = [];
+  let fallbackCalls = 0;
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/youtubei/v1/player")) {
+      const body = JSON.parse(String(init?.body)) as {
+        context: { client: { clientName: string } };
+      };
+      if (body.context.client.clientName === "IOS") {
+        return new Response(
+          JSON.stringify({
+            playabilityStatus: { status: "OK" },
+            streamingData: {
+              adaptiveFormats: [
+                {
+                  itag: 140,
+                  url: "https://rr1---sn-test.googlevideo.com/audio?token=test",
+                  mimeType: 'audio/mp4; codecs="mp4a.40.2"',
+                  bitrate: 129000,
+                  approxDurationMs: "10000",
+                },
+              ],
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          playabilityStatus: {
+            status: "LOGIN_REQUIRED",
+            reason: "Sign in to confirm you’re not a bot",
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    if (url.startsWith("https://rr1---sn-test.googlevideo.com/")) {
+      const range = new Headers(init?.headers).get("Range") ?? "";
+      probeRanges.push(range);
+      return new Response(null, {
+        status: range === "bytes=0-0" ? 206 : 403,
+      });
+    }
+
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+  console.warn = () => {};
+
+  const candidate: Candidate = {
+    id: "YE7VzlLtp-4",
+    url: "https://www.youtube.com/watch?v=YE7VzlLtp-4",
+    title: "Test video",
+    artists: [],
+    album: null,
+    durationS: 10,
+    source: "youtube",
+    channel: "Test channel",
+    searchRank: 0,
+  };
+  const resolver = new MediaResolver(
+    "/managed/yt-dlp",
+    async (_bin, args) => {
+      fallbackCalls += 1;
+      assert.equal(args.at(-1), candidate.url);
+      return {
+        stdout: [
+          "preview:url=https://fallback.example/audio.m4a",
+          "preview:ext=m4a",
+          "preview:duration=10",
+          'preview:headers={"User-Agent":"Fallback Test"}',
+        ].join("\n"),
+        stderr: "",
+        code: 0,
+      };
+    },
+  );
+
+  try {
+    const media = await resolver.resolve(candidate, undefined, "download");
+    assert.deepEqual(probeRanges, ["bytes=0-"]);
+    assert.equal(fallbackCalls, 1);
+    assert.equal(media.url, "https://fallback.example/audio.m4a");
+  } finally {
+    resolver.close();
+    globalThis.fetch = originalFetch;
+    console.warn = originalWarn;
+  }
+});
+
 test("BBC media uses MP3 for preview and WAV for import", async () => {
   const candidate: Candidate = {
     id: "07005210",
