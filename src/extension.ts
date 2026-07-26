@@ -2,6 +2,7 @@ import {
   initialize,
   AudioTrack,
   ClipSlot,
+  Simpler,
   type ActivationContext,
   type ArrangementSelection,
   type AudioClip,
@@ -223,7 +224,10 @@ export function activate(activation: ActivationContext) {
       return css;
     });
 
-  type Placement = (filePath: string) => Promise<AudioClip<"1.0.0">>;
+  interface Placement {
+    progressText: string;
+    place: (filePath: string) => Promise<AudioClip<"1.0.0"> | void>;
+  }
 
   const run = async (buildPlacement: () => Placement): Promise<void> => {
     if (!liveFontCss) {
@@ -386,9 +390,9 @@ export function activate(activation: ActivationContext) {
                   await context.resources.importIntoProject(audioPath);
                 if (signal.aborted) return;
 
-                await update("Creating clip…", 98);
-                const clip = await placement(imported);
-                clip.name = displayName(chosen);
+                await update(placement.progressText, 98);
+                const clip = await placement.place(imported);
+                if (clip) clip.name = displayName(chosen);
 
                 await update("Done", 100);
               } catch (err) {
@@ -430,8 +434,11 @@ export function activate(activation: ActivationContext) {
   context.commands.registerCommand("onlineAudioImport.slot", (arg: unknown) => {
     void run(() => {
       const slot = context.getObjectFromHandle(arg as Handle, ClipSlot);
-      return (filePath: string) =>
-        slot.createAudioClip({ filePath, isWarped: false });
+      return {
+        progressText: "Creating clip…",
+        place: (filePath: string) =>
+          slot.createAudioClip({ filePath, isWarped: false }),
+      };
     }).catch((e: unknown) => console.error("[online-audio-import]", e));
   });
 
@@ -441,20 +448,38 @@ export function activate(activation: ActivationContext) {
       const first = sel.selected_lanes[0];
       if (!first) throw new Error("No track in the arrangement selection.");
       const track = context.getObjectFromHandle(first, AudioTrack);
-      return (filePath: string) =>
-        track.createAudioClip({
-          filePath,
-          startTime: sel.time_selection_start,
-          isWarped: false,
-        });
+      return {
+        progressText: "Creating clip…",
+        place: (filePath: string) =>
+          track.createAudioClip({
+            filePath,
+            startTime: sel.time_selection_start,
+            isWarped: false,
+          }),
+      };
     }).catch((e: unknown) => console.error("[online-audio-import]", e));
   });
 
   context.commands.registerCommand("onlineAudioImport.track", (arg: unknown) => {
     void run(() => {
       const track = context.getObjectFromHandle(arg as Handle, AudioTrack);
-      return (filePath: string) =>
-        track.createAudioClip({ filePath, startTime: 0, isWarped: false });
+      return {
+        progressText: "Creating clip…",
+        place: (filePath: string) =>
+          track.createAudioClip({ filePath, startTime: 0, isWarped: false }),
+      };
+    }).catch((e: unknown) => console.error("[online-audio-import]", e));
+  });
+
+  context.commands.registerCommand("onlineAudioImport.simpler", (arg: unknown) => {
+    void run(() => {
+      const simpler = context.getObjectFromHandle(arg as Handle, Simpler);
+      return {
+        progressText: "Loading into Simpler…",
+        place: async (filePath: string) => {
+          await simpler.replaceSample(filePath);
+        },
+      };
     }).catch((e: unknown) => console.error("[online-audio-import]", e));
   });
 
@@ -466,4 +491,5 @@ export function activate(activation: ActivationContext) {
     "onlineAudioImport.arrSelection",
   );
   void context.ui.registerContextMenuAction("AudioTrack", label, "onlineAudioImport.track");
+  void context.ui.registerContextMenuAction("Simpler", label, "onlineAudioImport.simpler");
 }

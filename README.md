@@ -2,7 +2,7 @@
 
 **Find and import online audio without leaving Ableton Live.**
 
-Online Audio searches YouTube, YouTube Music, SoundCloud, BBC Sound Effects, Internet Archive, and Openverse audio (Freesound, Jamendo, Wikimedia Commons) inside Ableton Live. Preview and trim a result, then import the full track or selected range into a clip slot or Arrangement track.
+Online Audio searches YouTube, YouTube Music, SoundCloud, BBC Sound Effects, Internet Archive, and Openverse audio (Freesound, Jamendo, Wikimedia Commons) inside Ableton Live. Preview and trim a result, then import the full track or selected range into a clip slot, an Arrangement track, or Simpler.
 
 <p align="center">
   <a href="../../releases/latest/download/Online-Audio.ablx"><strong>Download extension (.ablx)</strong></a>
@@ -20,12 +20,12 @@ https://github.com/user-attachments/assets/3a0104f0-5782-465e-b7a9-4da79ca42807
 
 ## How to use
 
-1. Right-click a clip slot, an Arrangement selection, or an audio track.
+1. Right-click a clip slot, an Arrangement selection, an audio track, or a Simpler device.
 2. Choose **Extensions → Online Audio: Import…**
 3. Search for a song or sound effect, or paste a YouTube, YouTube Music, SoundCloud, or Internet Archive URL. Openverse results are opt-in under the Openverse source chip (expand for Freesound, Jamendo, or Wikimedia).
 4. Pick a result to preview it.
 5. (Optional) Drag the timeline's **Start** and **End** handles to select a range.
-6. Click **Import**. The selected audio would be placed in your set.
+6. Click **Import**. Live places the audio in the selected target.
 
 ## Install
 
