@@ -28,6 +28,11 @@ https://github.com/user-attachments/assets/3a0104f0-5782-465e-b7a9-4da79ca42807
 6. (Optional) Choose stems to keep — **Vocals**, **Drums**, **Bass**, **Others**. Turn on **HiQ** for higher-quality separation (off by default = faster). Leave all stems off to import the full mix.
 7. Click **Import**. Live places the audio in the selected target.
 
+<p align="center">
+  <img src="docs/images/audio-track-menu.png" alt="Extensions → Online Audio: Import… on an audio track" width="48%">
+  <img src="docs/images/simpler-menu.png" alt="Extensions → Online Audio: Import… on a Simpler device" width="48%">
+</p>
+
 ## Install
 
 1. [Download the extension](../../releases/latest/download/Online-Audio.ablx).
