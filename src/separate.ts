@@ -256,7 +256,7 @@ async function separateWithVocalSpecialist(
   if (result.code !== 0) {
     const detail = (result.stderr || result.stdout).slice(-800);
     throw new Error(
-      `Vocal separation failed (${model}, exit ${result.code}).\n${detail}`,
+      `Vocal separation failed (${vocalModelForQuality(selection.quality)}, exit ${result.code}).\n${detail}`,
     );
   }
 
