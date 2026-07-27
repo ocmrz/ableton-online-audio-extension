@@ -20,6 +20,11 @@ https://github.com/user-attachments/assets/3a0104f0-5782-465e-b7a9-4da79ca42807
 
 ## How to use
 
+<p align="center">
+  <img src="docs/images/audio-track-menu.png" alt="Extensions → Online Audio: Import… on an audio track" width="48%">
+  <img src="docs/images/simpler-menu.png" alt="Extensions → Online Audio: Import… on a Simpler device" width="48%">
+</p>
+
 1. Right-click a clip slot, an Arrangement selection, an audio track, or a Simpler device.
 2. Choose **Extensions → Online Audio: Import…**
 3. Search for a song or sound effect, or paste a YouTube, YouTube Music, SoundCloud, or Internet Archive URL. Openverse results are opt-in under the Openverse source chip (expand for Freesound, Jamendo, or Wikimedia).
@@ -27,11 +32,6 @@ https://github.com/user-attachments/assets/3a0104f0-5782-465e-b7a9-4da79ca42807
 5. (Optional) Drag the timeline's **Start** and **End** handles to select a range.
 6. (Optional) Choose stems to keep — **Vocals**, **Drums**, **Bass**, **Others**. Turn on **HiQ** for higher-quality separation (off by default = faster). Leave all stems off to import the full mix.
 7. Click **Import**. Live places the audio in the selected target.
-
-<p align="center">
-  <img src="docs/images/audio-track-menu.png" alt="Extensions → Online Audio: Import… on an audio track" width="48%">
-  <img src="docs/images/simpler-menu.png" alt="Extensions → Online Audio: Import… on a Simpler device" width="48%">
-</p>
 
 ## Install
 
