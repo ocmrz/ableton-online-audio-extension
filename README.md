@@ -25,7 +25,8 @@ https://github.com/user-attachments/assets/3a0104f0-5782-465e-b7a9-4da79ca42807
 3. Search for a song or sound effect, or paste a YouTube, YouTube Music, SoundCloud, or Internet Archive URL. Openverse results are opt-in under the Openverse source chip (expand for Freesound, Jamendo, or Wikimedia).
 4. Pick a result to preview it.
 5. (Optional) Drag the timeline's **Start** and **End** handles to select a range.
-6. Click **Import**. Live places the audio in the selected target.
+6. (Optional) Choose stems to keep — **Vocals**, **Drums**, **Bass**, **Others**. Turn on **HiQ** for higher-quality separation (off by default = faster). Leave all stems off to import the full mix.
+7. Click **Import**. Live places the audio in the selected target.
 
 ## Install
 
@@ -44,7 +45,16 @@ Packaged extensions do not appear while Developer Mode is active.
 
 On the first import, the extension downloads managed `yt-dlp` and verified FFmpeg binaries into Live's extension storage (about 69-88 MB combined, depending on the platform). Both downloads are automatic.
 
-The extension checks `yt-dlp` for updates about once a day; its pinned FFmpeg version updates with the extension.
+Stem separation picks a model by what you keep:
+
+| Selection | HiQ off (default) | HiQ on |
+|---|---|---|
+| **Vocals only** (or Drums+Bass+Others) | MDX `Kim_Vocal_2` via [audio-separator](https://github.com/nomadkaraoke/python-audio-separator) | BS-RoFormer |
+| **Drums / Bass / Others / mixed stems** | HTDemucs via [demucs-rs](https://github.com/nikhilunni/demucs-rs) | HTDemucs fine-tuned |
+
+The first vocals/instrumental stem import installs a managed Python tool stack with `uv` + `audio-separator` into Live's extension storage (large first-time download; models cache under `models/audio-separator`). Other stem mixes download managed demucs-rs (~10 MB) plus HTDemucs weights (~84 MB High Speed / ~333 MB High Quality, system cache). Separation runs locally.
+
+The extension checks `yt-dlp` for updates about once a day; pinned tool versions update with the extension.
 
 ## Use audio responsibly
 
@@ -92,3 +102,7 @@ Attach the build to a GitHub Release with the asset name `Online-Audio.ablx`. Th
 The source code is available under the [MIT License](LICENSE).
 
 Managed [FFmpeg](https://ffmpeg.org/) binaries come from [Shaka Project's reproducible builds](https://github.com/shaka-project/static-ffmpeg-binaries) and are licensed separately under the GPL. Their version, checksum, source, and license information are saved beside the downloaded binary.
+
+Managed [demucs-rs](https://github.com/nikhilunni/demucs-rs) binaries are licensed separately under the Apache License 2.0. Their version, checksum, source, and license information are saved beside the downloaded binary.
+
+Vocal models run through [audio-separator](https://github.com/nomadkaraoke/python-audio-separator) (MIT), installed with [uv](https://github.com/astral-sh/uv). Model weights come from the UVR / community model ecosystem and are downloaded on first use.

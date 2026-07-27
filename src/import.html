@@ -40,6 +40,13 @@
       };
       var archiveExpanded = false;
       var openverseExpanded = false;
+      var stemSelection = {
+        vocals: false,
+        drums: false,
+        bass: false,
+        other: false,
+        quality: "speed",
+      };
       var selected = 0;
       var visible = [];
       var ranked = [];
@@ -1937,6 +1944,42 @@
         q.focus();
       }
 
+      function anyStemSelected() {
+        return (
+          stemSelection.vocals ||
+          stemSelection.drums ||
+          stemSelection.bass ||
+          stemSelection.other
+        );
+      }
+
+      function syncStemUi() {
+        document.querySelectorAll("[data-stem]").forEach(function (el) {
+          var id = el.getAttribute("data-stem");
+          var on = !!stemSelection[id];
+          el.classList.toggle("active", on);
+          el.setAttribute("aria-pressed", on ? "true" : "false");
+        });
+        var qualityOn = stemSelection.quality === "quality";
+        var qualityToggle = document.getElementById("stemQualityToggle");
+        var qualityHint = document.getElementById("stemQualityHint");
+        var stemsOn = anyStemSelected();
+        if (qualityToggle) {
+          qualityToggle.disabled = !stemsOn;
+          qualityToggle.classList.toggle("active", qualityOn);
+          qualityToggle.setAttribute("aria-pressed", qualityOn ? "true" : "false");
+          qualityToggle.title = qualityOn
+            ? "Better separation (on)"
+            : "Faster separation (off)";
+        }
+        if (qualityHint) {
+          qualityHint.textContent = qualityOn
+            ? "Better separation"
+            : "Faster separation";
+          qualityHint.hidden = !stemsOn;
+        }
+      }
+
       function confirmPick() {
         var item = visible[selected];
         if (!item || isAgeRestrictedItem(item)) return;
@@ -1947,6 +1990,15 @@
           result.range = {
             startS: Math.round(previewStart * 1000) / 1000,
             endS: Math.round(previewEnd * 1000) / 1000,
+          };
+        }
+        if (anyStemSelected()) {
+          result.stems = {
+            vocals: !!stemSelection.vocals,
+            drums: !!stemSelection.drums,
+            bass: !!stemSelection.bass,
+            other: !!stemSelection.other,
+            quality: stemSelection.quality === "quality" ? "quality" : "speed",
           };
         }
         closeWithResult(result);
@@ -2316,6 +2368,24 @@
               .forEach(applyTimeInkNudge);
           });
         }
+        document.querySelectorAll("[data-stem]").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            var id = btn.getAttribute("data-stem");
+            if (!id || !(id in stemSelection) || id === "quality") return;
+            stemSelection[id] = !stemSelection[id];
+            syncStemUi();
+          });
+        });
+        var qualityToggle = document.getElementById("stemQualityToggle");
+        if (qualityToggle) {
+          qualityToggle.addEventListener("click", function () {
+            if (!anyStemSelected()) return;
+            stemSelection.quality =
+              stemSelection.quality === "quality" ? "speed" : "quality";
+            syncStemUi();
+          });
+        }
+        syncStemUi();
         timeline.addEventListener("pointerdown", function (e) {
           if (!(previewDuration > 0)) return;
           e.preventDefault();
@@ -2493,13 +2563,15 @@
         gap: 8px;
         padding: 0 6px;
         background: var(--p-live-chrome-bg);
+        /* Shared by .panel and .preview subsection gutters. */
+        --section-gap: 2px;
       }
       .panel {
         flex: 1;
         min-height: 0;
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: var(--section-gap);
         border: 0;
         border-radius: 4px;
         overflow: hidden;
@@ -2976,12 +3048,31 @@
       }
       .preview {
         flex: 0 0 auto;
-        padding: 6px 0 7px;
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        gap: var(--section-gap);
+        padding: 0;
         border: 0;
         border-radius: 4px;
         overflow: hidden;
-        background: var(--p-live-surface-bg);
+        background: #2a2a2a;
         color: var(--p-live-surface-text);
+        --clip-label-gap: 4px;
+        --clip-field-h: 13px;
+        --clip-field-bg: #dfdfdf;
+        --clip-field-border: #4f4f4f;
+        --clip-field-text: #121212;
+        --clip-seg-focus-bg: #cfcfcf;
+        --clip-label-text: #121212;
+      }
+      .preview-main {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        padding: 6px 0 7px;
+        background: var(--p-live-surface-bg);
       }
       .provider-host[hidden] {
         display: none;
@@ -3171,8 +3262,8 @@
       .timeline {
         --play-bar-height: 10px;
         position: relative;
-        height: 30px;
-        margin: 1px 8px;
+        height: 24px;
+        margin: 0 8px;
         touch-action: none;
         user-select: none;
         cursor: default;
@@ -3293,8 +3384,8 @@
       .playhead {
         position: absolute;
         z-index: 4;
-        top: 5px;
-        bottom: 5px;
+        top: 3px;
+        bottom: 3px;
         width: 1px;
         background: var(--p-live-surface-text);
         pointer-events: none;
@@ -3314,16 +3405,84 @@
         align-items: start;
         min-width: 0;
         margin: 2px 8px 0;
-        --clip-label-gap: 4px;
-        --clip-field-h: 13px;
-        --clip-field-bg: #dfdfdf;
-        --clip-field-border: #4f4f4f;
-        --clip-field-text: #121212;
-        --clip-seg-focus-bg: #cfcfcf;
-        --clip-label-text: #121212;
+      }
+      .stems-panel {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: flex-start;
+        gap: var(--clip-label-gap);
+        margin: 0;
+        padding: 6px 12px 7px 12px;
+        min-width: 0;
+        flex: 0 0 auto;
+        background: var(--p-live-surface-bg);
+      }
+      .stems-label {
+        flex: 0 0 auto;
+        /* Match .preview-title (song name). */
+        color: var(--p-live-surface-text);
+        font-size: 10px;
+        line-height: normal;
+        margin: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .stems-controls {
+        display: flex;
+        flex-direction: column;
+        flex-wrap: nowrap;
+        align-items: stretch;
+        gap: 0;
+        min-width: 0;
+        width: 100%;
+      }
+      .stems-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2px;
+        min-width: 0;
+        width: 100%;
+        flex: 0 0 auto;
+      }
+      .stems-quality-divider {
+        height: 0;
+        width: 100%;
+        margin: 5px 0;
+        border: 0;
+        border-top: 1px solid #242424;
+      }
+      /* Same as footer .button pills, but square + compact label padding. */
+      .button.stem-toggle {
+        border-radius: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 13px;
+        padding: 0 6px;
+        font-size: 9px;
+        line-height: 1;
+      }
+      #stemQualityToggle {
+        width: 100%;
+        box-sizing: border-box;
+      }
+      .stems-quality-hint {
+        margin: 3px 0 0;
+        color: var(--clip-label-text);
+        font-size: 10px;
+        line-height: normal;
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .stems-quality-hint[hidden] {
+        display: none;
       }
       @media (prefers-color-scheme: dark) {
-        .clip-params {
+        .preview {
           --clip-field-bg: #242424;
           --clip-field-border: #111111;
           --clip-field-text: #b5b5b5;
@@ -3552,12 +3711,24 @@
         background: var(--p-live-control-bg);
         color: var(--p-live-control-text--enabled);
       }
-      .button:active {
+      .button:active:not(:disabled) {
+        background: var(--p-live-accent-primary);
+        color: #121212;
+      }
+      /* Stem toggles stay latched; skip the pill press flash (accent → off → on). */
+      .button.stem-toggle:active:not(:disabled):not(.active) {
+        background: var(--p-live-control-bg);
+        color: var(--p-live-control-text--enabled);
+      }
+      .button.stem-toggle.active,
+      .button.stem-toggle.active:hover,
+      .button.stem-toggle.active:active:not(:disabled) {
         background: var(--p-live-accent-primary);
         color: #121212;
       }
       .button:disabled {
         opacity: 0.45;
+        pointer-events: none;
       }
     </style>
   </head>
@@ -3796,132 +3967,189 @@
       <div class="preview" id="preview" hidden>
           <audio id="previewAudio" preload="metadata"></audio>
           <div class="provider-host" id="providerHost" hidden></div>
-          <div class="preview-header">
-            <div class="preview-leading">
-              <span class="preview-badge" id="previewBadge" aria-hidden="true"></span>
-              <div class="preview-copy">
-                <span class="preview-title" id="previewTitle"></span>
-                <span class="preview-status" id="previewStatus"></span>
+          <div class="preview-main">
+            <div class="preview-header">
+              <div class="preview-leading">
+                <span class="preview-badge" id="previewBadge" aria-hidden="true"></span>
+                <div class="preview-copy">
+                  <span class="preview-title" id="previewTitle"></span>
+                  <span class="preview-status" id="previewStatus"></span>
+                </div>
               </div>
-            </div>
-            <div class="preview-transport">
-              <button
-                class="transport skip-back"
-                type="button"
-                id="previewRewind"
-                aria-label="Skip back 5 seconds"
-                title="Skip back 5 seconds"
-                disabled
-              ></button>
-              <button
-                class="transport"
-                type="button"
-                id="previewToggle"
-                aria-label="Play preview"
-                title="Play preview"
-                disabled
-              ></button>
-              <button
-                class="transport skip-forward"
-                type="button"
-                id="previewForward"
-                aria-label="Skip forward 5 seconds"
-                title="Skip forward 5 seconds"
-                disabled
-              ></button>
-            </div>
-            <div class="preview-actions">
-              <span class="preview-clock" id="previewClock"
-                >0:00.0 / 0:00.0</span
-              >
-            </div>
-          </div>
-          <div
-            class="timeline"
-            id="timeline"
-            aria-label="Preview and selected range"
-          >
-            <div class="timeline-track"></div>
-            <div class="timeline-selection" id="timelineSelection"></div>
-            <div class="playhead" id="playhead"></div>
-            <button
-              class="timeline-handle"
-              id="startHandle"
-              type="button"
-              aria-label="Selection start"
-              disabled
-            >
-              <!-- Right-pointing triangle (▶) at selection start -->
-              <svg
-                class="handle-shape"
-                viewBox="0 0 8.660254 10"
-                aria-hidden="true"
-                focusable="false"
-              >
-                <path
-                  class="handle-solid"
-                  d="M 0 0 L 8.660254 5 L 0 10 Z"
-                ></path>
-                <path
-                  class="handle-outline"
-                  d="M 0.5 0.866 L 7.794228 5 L 0.5 9.134 Z"
-                ></path>
-              </svg>
-            </button>
-            <button
-              class="timeline-handle"
-              id="endHandle"
-              type="button"
-              aria-label="Selection end"
-              disabled
-            >
-              <!-- Left-pointing triangle (◀) at selection end -->
-              <svg
-                class="handle-shape"
-                viewBox="0 0 8.660254 10"
-                aria-hidden="true"
-                focusable="false"
-              >
-                <path
-                  class="handle-solid"
-                  d="M 8.660254 0 L 0 5 L 8.660254 10 Z"
-                ></path>
-                <path
-                  class="handle-outline"
-                  d="M 8.160254 0.866 L 0.866026 5 L 8.160254 9.134 Z"
-                ></path>
-              </svg>
-            </button>
-          </div>
-          <div class="clip-params" id="clipParams">
-            <div class="clip-param">
-              <div class="clip-param-head">
-                <span class="clip-param-label">Start</span>
+              <div class="preview-transport">
                 <button
-                  class="button"
+                  class="transport skip-back"
                   type="button"
-                  data-set="start"
+                  id="previewRewind"
+                  aria-label="Skip back 5 seconds"
+                  title="Skip back 5 seconds"
                   disabled
+                ></button>
+                <button
+                  class="transport"
+                  type="button"
+                  id="previewToggle"
+                  aria-label="Play preview"
+                  title="Play preview"
+                  disabled
+                ></button>
+                <button
+                  class="transport skip-forward"
+                  type="button"
+                  id="previewForward"
+                  aria-label="Skip forward 5 seconds"
+                  title="Skip forward 5 seconds"
+                  disabled
+                ></button>
+              </div>
+              <div class="preview-actions">
+                <span class="preview-clock" id="previewClock"
+                  >0:00.0 / 0:00.0</span
                 >
-                  <span class="clip-set-label">Set</span>
+              </div>
+            </div>
+            <div
+              class="timeline"
+              id="timeline"
+              aria-label="Preview and selected range"
+            >
+              <div class="timeline-track"></div>
+              <div class="timeline-selection" id="timelineSelection"></div>
+              <div class="playhead" id="playhead"></div>
+              <button
+                class="timeline-handle"
+                id="startHandle"
+                type="button"
+                aria-label="Selection start"
+                disabled
+              >
+                <!-- Right-pointing triangle (▶) at selection start -->
+                <svg
+                  class="handle-shape"
+                  viewBox="0 0 8.660254 10"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path
+                    class="handle-solid"
+                    d="M 0 0 L 8.660254 5 L 0 10 Z"
+                  ></path>
+                  <path
+                    class="handle-outline"
+                    d="M 0.5 0.866 L 7.794228 5 L 0.5 9.134 Z"
+                  ></path>
+                </svg>
+              </button>
+              <button
+                class="timeline-handle"
+                id="endHandle"
+                type="button"
+                aria-label="Selection end"
+                disabled
+              >
+                <!-- Left-pointing triangle (◀) at selection end -->
+                <svg
+                  class="handle-shape"
+                  viewBox="0 0 8.660254 10"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path
+                    class="handle-solid"
+                    d="M 8.660254 0 L 0 5 L 8.660254 10 Z"
+                  ></path>
+                  <path
+                    class="handle-outline"
+                    d="M 8.160254 0.866 L 0.866026 5 L 8.160254 9.134 Z"
+                  ></path>
+                </svg>
+              </button>
+            </div>
+            <div class="clip-params" id="clipParams">
+              <div class="clip-param">
+                <div class="clip-param-head">
+                  <span class="clip-param-label">Start</span>
+                  <button
+                    class="button"
+                    type="button"
+                    data-set="start"
+                    disabled
+                  >
+                    <span class="clip-set-label">Set</span>
+                  </button>
+                </div>
+                <div id="rangeStartHost"></div>
+              </div>
+              <div class="clip-param clip-param-length">
+                <div class="clip-param-head">
+                  <span class="clip-param-label">Length</span>
+                </div>
+                <div id="rangeLengthHost"></div>
+              </div>
+              <div class="clip-param clip-param-end">
+                <div class="clip-param-head">
+                  <span class="clip-param-label">End</span>
+                  <button class="button" type="button" data-set="end" disabled>
+                    <span class="clip-set-label">Set</span>
+                  </button>
+                </div>
+                <div id="rangeEndHost"></div>
+              </div>
+            </div>
+          </div>
+          <div class="stems-panel" id="stemsPanel">
+            <span class="stems-label">Keep</span>
+            <div class="stems-controls">
+              <div class="stems-row" role="group" aria-label="Parts to keep">
+                <button
+                  class="button stem-toggle"
+                  type="button"
+                  data-stem="vocals"
+                  aria-pressed="false"
+                >
+                  Vocals
+                </button>
+                <button
+                  class="button stem-toggle"
+                  type="button"
+                  data-stem="drums"
+                  aria-pressed="false"
+                >
+                  Drums
+                </button>
+                <button
+                  class="button stem-toggle"
+                  type="button"
+                  data-stem="bass"
+                  aria-pressed="false"
+                >
+                  Bass
+                </button>
+                <button
+                  class="button stem-toggle"
+                  type="button"
+                  data-stem="other"
+                  aria-pressed="false"
+                >
+                  Others
                 </button>
               </div>
-              <div id="rangeStartHost"></div>
-            </div>
-            <div class="clip-param clip-param-length">
-              <div class="clip-param-head">
-                <span class="clip-param-label">Length</span>
-              </div>
-              <div id="rangeLengthHost"></div>
-            </div>
-            <div class="clip-param clip-param-end">
-              <div class="clip-param-head">
-                <span class="clip-param-label">End</span>
-                <button class="button" type="button" data-set="end" disabled>
-                  <span class="clip-set-label">Set</span>
-                </button>
-              </div>
-              <div id="rangeEndHost"></div>
+              <hr class="stems-quality-divider" aria-hidden="true" />
+              <button
+                class="button stem-toggle"
+                type="button"
+                id="stemQualityToggle"
+                aria-pressed="false"
+                aria-label="Separation quality"
+                title="Faster separation (off)"
+                aria-describedby="stemQualityHint"
+                disabled
+              >
+                HiQ
+              </button>
+              <p class="stems-quality-hint" id="stemQualityHint" hidden>
+                Faster separation
+              </p>
             </div>
           </div>
         </div>

@@ -15,8 +15,20 @@ import {
   downloadAudio,
   type DownloadAudioOptions,
 } from "./download.js";
+import {
+  audioSeparatorPaths,
+  ensureAudioSeparator,
+} from "./audioSeparatorBootstrap.js";
+import { ensureDemucs } from "./demucsBootstrap.js";
 import { ensureFfmpeg } from "./ffmpegBootstrap.js";
 import { MediaResolver } from "./media.js";
+import { separateAudio } from "./separate.js";
+import {
+  needsStemSeparation,
+  parseStemSelection,
+  usesVocalSpecialist,
+  type StemSelection,
+} from "./stems.js";
 import type { Candidate, MediaSource, TimeRange } from "./types.js";
 import { displayName } from "./types.js";
 import { applyLiveTheme } from "./theme.js";
@@ -148,6 +160,7 @@ async function showRetry(
 interface ImportPick {
   candidate: Candidate;
   range: TimeRange | null;
+  stems: StemSelection | null;
 }
 
 function parseImportPick(raw: string): ImportPick | null {
@@ -155,6 +168,7 @@ function parseImportPick(raw: string): ImportPick | null {
     const parsed = JSON.parse(raw) as {
       candidate?: unknown;
       range?: unknown;
+      stems?: unknown;
     };
     const c = parsed.candidate;
     if (!c || typeof c !== "object") return null;
@@ -164,7 +178,8 @@ function parseImportPick(raw: string): ImportPick | null {
       source !== "youtube" &&
       source !== "soundcloud" &&
       source !== "bbc" &&
-      source !== "archive"
+      source !== "archive" &&
+      source !== "openverse"
     ) {
       return null;
     }
@@ -186,9 +201,15 @@ function parseImportPick(raw: string): ImportPick | null {
         ? { kind: o.kind }
         : {}),
     };
+    const stems =
+      parsed.stems === undefined || parsed.stems === null
+        ? null
+        : parseStemSelection(parsed.stems);
+    if (parsed.stems != null && !stems) return null;
+
     const rangeValue = parsed.range;
     if (!rangeValue || typeof rangeValue !== "object") {
-      return { candidate, range: null };
+      return { candidate, range: null, stems };
     }
     const rangeObject = rangeValue as Record<string, unknown>;
     const startS = rangeObject.startS;
@@ -203,7 +224,7 @@ function parseImportPick(raw: string): ImportPick | null {
     ) {
       return null;
     }
-    return { candidate, range: { startS, endS } };
+    return { candidate, range: { startS, endS }, stems };
   } catch {
     return null;
   }
@@ -295,7 +316,7 @@ export function activate(activation: ActivationContext) {
 
     let pickRaw = "{}";
     try {
-      pickRaw = await context.ui.showModalDialog(server.baseUrl + "/", 620, 500);
+      pickRaw = await context.ui.showModalDialog(server.baseUrl + "/", 620, 560);
     } catch (error) {
       mediaResolver.close();
       throw error;
@@ -341,10 +362,10 @@ export function activate(activation: ActivationContext) {
                   tempDir,
                   (p) => {
                     progressEvents += 1;
-                    // Map FFmpeg 0–100 into conversion phase 55–85.
+                    // Map FFmpeg 0–100 into conversion phase 55–70.
                     const uiPct = Math.min(
-                      85,
-                      Math.max(55, Math.round(55 + p.pct * 0.3)),
+                      70,
+                      Math.max(55, Math.round(55 + p.pct * 0.15)),
                     );
                     if (uiPct > latestPct) latestPct = uiPct;
                     latestLabel = p.speed
@@ -380,12 +401,82 @@ export function activate(activation: ActivationContext) {
                   ]);
                 }
 
-                const audioPath = await downloadPromise;
+                let audioPath = await downloadPromise;
                 if (signal.aborted) return;
 
-                await update(latestLabel, Math.max(latestPct, 85));
+                await update(latestLabel, Math.max(latestPct, 70));
 
-                await update("Importing into project…", 92);
+                if (needsStemSeparation(pick.stems)) {
+                  const stems = pick.stems!;
+                  const vocalPath = usesVocalSpecialist(stems);
+                  await update(
+                    vocalPath
+                      ? "Preparing vocal separator…"
+                      : "Preparing stem separator…",
+                    72,
+                  );
+
+                  let demucsPath: string | undefined;
+                  let audioSeparatorPath: string | undefined;
+                  let audioSeparatorModelDir: string | undefined;
+
+                  if (vocalPath) {
+                    audioSeparatorPath = await ensureAudioSeparator(storageDir, {
+                      signal,
+                      onStatus: (message, pct) => {
+                        void update(
+                          message,
+                          Math.round(72 + (pct ?? 0) * 0.08),
+                        );
+                      },
+                    });
+                    audioSeparatorModelDir =
+                      audioSeparatorPaths(storageDir).modelDir;
+                  } else {
+                    demucsPath = await ensureDemucs(storageDir, {
+                      signal,
+                      onStatus: (message, pct) => {
+                        void update(
+                          message,
+                          Math.round(72 + (pct ?? 0) * 0.08),
+                        );
+                      },
+                    });
+                  }
+                  if (signal.aborted) return;
+
+                  await update(
+                    vocalPath ? "Separating vocals…" : "Separating stems…",
+                    80,
+                  );
+                  const separateOptions: Parameters<typeof separateAudio>[3] = {
+                    ffmpegPath,
+                    selection: stems,
+                  };
+                  if (demucsPath) separateOptions.demucsPath = demucsPath;
+                  if (audioSeparatorPath) {
+                    separateOptions.audioSeparatorPath = audioSeparatorPath;
+                  }
+                  if (audioSeparatorModelDir) {
+                    separateOptions.audioSeparatorModelDir =
+                      audioSeparatorModelDir;
+                  }
+                  audioPath = await separateAudio(
+                    audioPath,
+                    tempDir,
+                    signal,
+                    separateOptions,
+                    (p) => {
+                      void update(
+                        p.message,
+                        Math.round(80 + p.pct * 0.12),
+                      );
+                    },
+                  );
+                  if (signal.aborted) return;
+                }
+
+                await update("Importing into project…", 93);
                 const imported =
                   await context.resources.importIntoProject(audioPath);
                 if (signal.aborted) return;

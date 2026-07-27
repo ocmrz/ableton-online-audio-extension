@@ -26,6 +26,23 @@ test("global type filters are replaced by Internet Archive refinements", async (
   assert.match(html, /data-filter="archive-sound-effect"/);
 });
 
+test("import dialog exposes stem and quality controls", async () => {
+  const html = await fsp.readFile(
+    new URL("./import.html", import.meta.url),
+    "utf8",
+  );
+  assert.match(html, /data-stem="vocals"/);
+  assert.match(html, /data-stem="drums"/);
+  assert.match(html, /data-stem="bass"/);
+  assert.match(html, /data-stem="other"/);
+  assert.match(html, /id="stemQualityToggle"/);
+  assert.match(html, />\s*HiQ\s*</);
+  assert.match(html, /id="stemQualityHint"/);
+  assert.match(html, /Faster separation/);
+  assert.match(html, /Better separation/);
+  assert.match(html, /result\.stems\s*=/);
+});
+
 test("Shift+Space resumes from a paused seek after playback ends", async () => {
   const script = await readInlineScript();
   const context = vm.createContext({

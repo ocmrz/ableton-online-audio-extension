@@ -20,6 +20,7 @@ export function runProcess(
   args: string[],
   signal?: AbortSignal,
   onStdoutLine?: (line: string) => void,
+  extraEnv?: NodeJS.ProcessEnv,
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -28,7 +29,16 @@ export function runProcess(
     }
 
     const child = spawn(bin, args, {
-      env: { ...process.env, PATH: augmentedPath() },
+      env: {
+        ...process.env,
+        ...extraEnv,
+        PATH: [
+          extraEnv?.PATH,
+          augmentedPath(),
+        ]
+          .filter(Boolean)
+          .join(path.delimiter),
+      },
     });
 
     let stdout = "";
